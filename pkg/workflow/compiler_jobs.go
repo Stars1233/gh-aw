@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/github/gh-aw/pkg/stringutil"
@@ -17,12 +16,6 @@ import (
 )
 
 var compilerJobsLog = logger.New("workflow:compiler_jobs")
-
-// Pre-compiled regexes for performance (avoid recompilation in hot paths)
-var (
-	// runtimeImportMacroRe matches runtime-import macros: {{#runtime-import filepath}} or {{#runtime-import? filepath}}
-	runtimeImportMacroRe = regexp.MustCompile(`\{\{#runtime-import\??[ \t]+([^\}]+)\}\}`)
-)
 
 // This file contains job building functions extracted from compiler.go
 // These functions are responsible for constructing the various jobs that make up
@@ -439,33 +432,6 @@ func (c *Compiler) buildCustomJobs(data *WorkflowData, activationJobCreated bool
 	return nil
 }
 
-// containsRuntimeImports checks if markdown content contains runtime-import macros
-// that reference files from the repository (not URLs).
-// Patterns detected:
-//   - {{#runtime-import filepath}} or {{#runtime-import? filepath}} where filepath is not a URL
-//
-// URLs (http:// or https://) are excluded as they don't require repository checkout.
-func containsRuntimeImports(markdownContent string) bool {
-	if markdownContent == "" {
-		return false
-	}
-
-	// Use pre-compiled regex from package level for performance
-	matches := runtimeImportMacroRe.FindAllStringSubmatch(markdownContent, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			filepath := strings.TrimSpace(match[1])
-			// Check if it's NOT a URL (URLs don't require checkout)
-			// Any non-URL path requires checkout since it's a file in the repository
-			if !strings.HasPrefix(filepath, "http://") && !strings.HasPrefix(filepath, "https://") {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // shouldAddCheckoutStep determines if the checkout step should be added based on permissions and custom steps
 func (c *Compiler) shouldAddCheckoutStep(data *WorkflowData) bool {
 	// Check condition 1: If custom steps already contain checkout, don't add another one
@@ -480,22 +446,23 @@ func (c *Compiler) shouldAddCheckoutStep(data *WorkflowData) bool {
 		return true // Custom agent file requires checkout to access the file
 	}
 
-	// Check condition 3: If permissions don't grant contents access, don't add checkout
-	// This must be checked before runtime-imports check because checkout requires permissions
+	// Check condition 3: Check if we have or will have contents: read permission
+	// In dev mode, contents: read is added automatically for local actions checkout
+	// So we need to account for that when deciding whether to add repository checkout
 	permParser := NewPermissionsParser(data.Permissions)
-	if !permParser.HasContentsReadAccess() {
+	hasContentsRead := permParser.HasContentsReadAccess()
+
+	// In dev mode, if we'll add contents: read for actions folder, we should also add repository checkout
+	// because all workflows use runtime-import for the main workflow file
+	willAddContentsRead := (c.actionMode.IsDev() || c.actionMode.IsScript()) && len(c.generateCheckoutActionsFolder(data)) > 0
+
+	if !hasContentsRead && !willAddContentsRead {
 		log.Print("Skipping checkout step: no contents read access in permissions")
 		return false // No contents read access, so checkout is not needed
 	}
 
-	// Check condition 4: If markdown contains runtime-import macros, checkout is required
-	// Runtime imports need to read files from the .github folder at runtime
-	// This check only matters if permissions allow contents access (checked above)
-	if containsRuntimeImports(data.MarkdownContent) {
-		log.Print("Adding checkout step: markdown contains runtime-import macros")
-		return true // Runtime imports require checkout to access repository files
-	}
-
-	// If we get here, permissions allow contents access and custom steps (if any) don't contain checkout
-	return true // Add checkout because it's needed and not already present
+	// If we have or will have contents: read, add checkout
+	// This is needed because all workflows use runtime-import for the main workflow file
+	log.Print("Adding checkout step: contents read access is available or will be added")
+	return true
 }
