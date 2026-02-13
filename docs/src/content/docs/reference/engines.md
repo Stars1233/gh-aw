@@ -7,6 +7,12 @@ sidebar:
 
 GitHub Agentic Workflows use [AI Engines](/gh-aw/reference/glossary/#engine) (normally a coding agent) to interpret and execute natural language instructions. Each coding agent has unique capabilities and configuration options.
 
+## Available Coding Agents
+
+- [**Copilot CLI**](#using-copilot-cli)
+- [**Claude by Anthropic (Claude Code)**](#using-claude-by-anthropic-claude-code)
+- [**OpenAI Codex**](#using-openai-codex)
+
 ## Using Copilot CLI
 
 [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli) is the default AI engine (coding agent).
