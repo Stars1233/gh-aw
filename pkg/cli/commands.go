@@ -307,10 +307,20 @@ on:
 #   # schedule: weekly on monday  # Fuzzy weekly schedule
 
 # Permissions - what can this workflow access?
+# Write operations (creating issues, PRs, comments, etc.) are handled
+# automatically by the safe-outputs job with its own scoped permissions.
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
+  issues: read
+  pull-requests: read
+
+# Tools - GitHub API access via toolsets (context, repos, issues, pull_requests)
+# tools:
+#   github:
+#     toolsets: [default]
+
+# Network access
+network: defaults
 
 # Outputs - what APIs and tools can the AI use?
 safe-outputs:
@@ -318,9 +328,12 @@ safe-outputs:
     max: 5               # Optional: specify maximum number
   # create-agent-session:   # Creates GitHub Copilot coding agent sessions (max: 1)
   # create-pull-request: # Creates exactly one pull request
-  # add-comment:   # Adds comments (default max: 1)
+  # add-comment:         # Adds comments (default max: 1)
   #   max: 2             # Optional: specify maximum number
   # add-labels:
+  # update-issue:
+  # create-discussion:
+  # push-to-pull-request-branch:
 
 ---
 
