@@ -5119,6 +5119,10 @@
                   "type": "boolean",
                   "description": "Controls the fallback behavior when pull request creation fails. When true (default), an issue is created as a fallback with the patch content. When false, no issue is created and the workflow fails with an error. Setting to false also removes the issues:write permission requirement.",
                   "default": true
+                },
+                "github-token-for-extra-empty-commit": {
+                  "type": "string",
+                  "description": "Token used to push an empty commit after PR creation to trigger CI events. Works around the GITHUB_TOKEN limitation where pushes don't trigger workflow runs. Use a secret expression (e.g. '${{ secrets.CI_TOKEN }}') or 'app' for GitHub App auth."
                 }
               },
               "additionalProperties": false,
@@ -6096,6 +6100,10 @@
                   "type": "boolean",
                   "description": "If true, emit step summary messages instead of making GitHub API calls for this specific output type (preview mode)",
                   "examples": [true, false]
+                },
+                "github-token-for-extra-empty-commit": {
+                  "type": "string",
+                  "description": "Token used to push an empty commit after pushing changes to trigger CI events. Works around the GITHUB_TOKEN limitation where pushes don't trigger workflow runs. Use a secret expression (e.g. '${{ secrets.CI_TOKEN }}') or 'app' for GitHub App auth."
                 }
               },
               "additionalProperties": false

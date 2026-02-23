@@ -303,24 +303,29 @@ This is expected GitHub Actions security behavior. Pull requests created using t
 
 GitHub Actions prevents the `GITHUB_TOKEN` from triggering new workflow runs to avoid infinite loops and uncontrolled automation chains. Without this protection, a workflow could create a PR, which triggers another workflow, which creates another PR, and so on indefinitely.
 
-If you need CI checks to run on PRs created by agentic workflows, you have three options:
+If you need CI checks to run on PRs created by agentic workflows, you have several options:
 
-**Option 1: Use different authorization**
+**Option 1: Use `github-token-for-extra-empty-commit` (Recommended)**
 
-Configure your [`create-pull-request` safe output](/gh-aw/reference/safe-outputs/#pull-request-creation-create-pull-request) to use a PAT or a GitHub App. This allows PR creation to trigger CI workflows.
-
-**Option 2: Use workflow_run trigger**
-
-Configure your CI workflows to run on `workflow_run` events, which allows them to react to completed workflows:
+Add a `github-token-for-extra-empty-commit` to your `create-pull-request` or `push-to-pull-request-branch` safe output. This pushes an empty commit using a different token after PR creation/push, which triggers CI events without changing the overall PR authorization.
 
 ```yaml wrap
-on:
-  workflow_run:
-    workflows: ["Create Pull Request Workflow"]
-    types: [completed]
+safe-outputs:
+  create-pull-request:
+    github-token-for-extra-empty-commit: ${{ secrets.CI_TRIGGER_PAT }}
 ```
 
-This approach maintains security while allowing CI to run after PR creation. See [GitHub Actions workflow_run documentation](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run) for details.
+See [Triggering CI on Created Pull Requests](/gh-aw/reference/safe-outputs/#triggering-ci-on-created-pull-requests) for details.
+
+**Option 2: Use different authorization for the entire safe output**
+
+Configure your [`create-pull-request` safe output](/gh-aw/reference/safe-outputs/#pull-request-creation-create-pull-request) to use a PAT or a GitHub App for all operations. This allows PR creation to trigger CI workflows, but changes the authorization for the entire PR creation process. The user or app associated with the token will be the author of the PR.
+
+```yaml wrap
+safe-outputs:
+  create-pull-request:
+    github-token: ${{ secrets.CI_USER_PAT }}
+```
 
 ## Workflow Design
 
