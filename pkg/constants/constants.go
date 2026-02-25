@@ -321,12 +321,12 @@ const PublicGitHubHost URL = "https://github.com"
 const GitHubCopilotMCPDomain = "api.githubcopilot.com"
 
 // DefaultClaudeCodeVersion is the default version of the Claude Code CLI.
-const DefaultClaudeCodeVersion Version = "2.1.52"
+const DefaultClaudeCodeVersion Version = "2.1.56"
 
 // DefaultCopilotVersion is the default version of the GitHub Copilot CLI.
 //
 // WARNING: UPGRADING COPILOT CLI REQUIRES A FULL INTEGRATION TEST RUN TO ENSURE COMPATIBILITY.
-const DefaultCopilotVersion Version = "0.0.415"
+const DefaultCopilotVersion Version = "0.0.417"
 
 // DefaultCopilotDetectionModel is the default model for the Copilot engine when used in the detection job
 // Updated to gpt-5.1-codex-mini after gpt-5-mini deprecation on 2026-01-17
@@ -399,7 +399,7 @@ const DefaultGeminiVersion Version = "0.29.0"
 const DefaultGitHubMCPServerVersion Version = "v0.31.0"
 
 // DefaultFirewallVersion is the default version of the gh-aw-firewall (AWF) binary
-const DefaultFirewallVersion Version = "v0.20.2"
+const DefaultFirewallVersion Version = "v0.23.0"
 
 // AWF (Agentic Workflow Firewall) constants
 
