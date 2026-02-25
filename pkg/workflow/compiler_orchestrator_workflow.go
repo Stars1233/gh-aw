@@ -145,7 +145,7 @@ func (c *Compiler) buildInitialWorkflowData(
 		agentImportSpec = ""
 	}
 
-	return &WorkflowData{
+	workflowData := &WorkflowData{
 		Name:                  toolsResult.workflowName,
 		FrontmatterName:       toolsResult.frontmatterName,
 		FrontmatterYAML:       strings.Join(result.FrontmatterLines, "\n"),
@@ -183,6 +183,19 @@ func (c *Compiler) buildInitialWorkflowData(
 		ActionMode:            c.actionMode,
 		InlinedImports:        inlinedImports,
 	}
+
+	// Populate checkout configs from parsed frontmatter.
+	// Fall back to raw frontmatter parsing when full ParseFrontmatterConfig fails
+	// (e.g. due to unrecognised tool config shapes like bash: ["*"]).
+	if toolsResult.parsedFrontmatter != nil {
+		workflowData.CheckoutConfigs = toolsResult.parsedFrontmatter.CheckoutConfigs
+	} else if rawCheckout, ok := result.Frontmatter["checkout"]; ok {
+		if configs, err := ParseCheckoutConfigs(rawCheckout); err == nil {
+			workflowData.CheckoutConfigs = configs
+		}
+	}
+
+	return workflowData
 }
 
 // resolveInlinedImports returns true if inlined-imports is enabled.
