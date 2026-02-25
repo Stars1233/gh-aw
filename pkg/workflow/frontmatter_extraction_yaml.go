@@ -501,6 +501,7 @@ func (c *Compiler) addZizmorIgnoreForWorkflowRun(yamlStr string) string {
 	if !strings.Contains(yamlStr, "workflow_run:") {
 		return yamlStr
 	}
+	frontmatterLog.Print("Adding zizmor ignore annotation for workflow_run trigger")
 
 	lines := strings.Split(yamlStr, "\n")
 	var result []string
@@ -551,6 +552,7 @@ func (c *Compiler) addZizmorIgnoreForWorkflowRun(yamlStr string) string {
 func (c *Compiler) extractPermissions(frontmatter map[string]any) string {
 	permissionsValue, exists := frontmatter["permissions"]
 	if !exists {
+		frontmatterLog.Print("No permissions field found in frontmatter")
 		return ""
 	}
 
@@ -612,6 +614,7 @@ func (c *Compiler) extractExpressionFromIfString(ifString string) string {
 
 // extractCommandConfig extracts command configuration from frontmatter including name and events
 func (c *Compiler) extractCommandConfig(frontmatter map[string]any) (commandNames []string, commandEvents []string) {
+	frontmatterLog.Print("Extracting command configuration from frontmatter")
 	// Check new format: on.slash_command or on.slash_command.name (preferred)
 	// Also check legacy format: on.command or on.command.name (deprecated)
 	if onValue, exists := frontmatter["on"]; exists {
@@ -641,6 +644,7 @@ func (c *Compiler) extractCommandConfig(frontmatter map[string]any) (commandName
 
 				// Check if command is a string (shorthand format)
 				if commandStr, ok := commandValue.(string); ok {
+					frontmatterLog.Printf("Extracted command name (shorthand): %s", commandStr)
 					return []string{commandStr}, nil // nil means default (all events)
 				}
 				// Check if command is a map with a name key (object format)
@@ -666,6 +670,7 @@ func (c *Compiler) extractCommandConfig(frontmatter map[string]any) (commandName
 						events = ParseCommandEvents(eventsValue)
 					}
 
+					frontmatterLog.Printf("Extracted command config: names=%v, events=%v", names, events)
 					return names, events
 				}
 			}

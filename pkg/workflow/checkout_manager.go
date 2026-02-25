@@ -94,6 +94,7 @@ type CheckoutManager struct {
 // NewCheckoutManager creates a new CheckoutManager pre-loaded with user-supplied
 // CheckoutConfig entries from the frontmatter.
 func NewCheckoutManager(userCheckouts []*CheckoutConfig) *CheckoutManager {
+	checkoutManagerLog.Printf("Creating checkout manager with %d user checkout config(s)", len(userCheckouts))
 	cm := &CheckoutManager{
 		index: make(map[checkoutKey]int),
 	}
@@ -172,6 +173,7 @@ func (cm *CheckoutManager) GetDefaultCheckoutOverride() *resolvedCheckout {
 // (additional) checkouts — those that target a specific path other than the root.
 // The caller is responsible for emitting the default workspace checkout separately.
 func (cm *CheckoutManager) GenerateAdditionalCheckoutSteps(getActionPin func(string) string) []string {
+	checkoutManagerLog.Printf("Generating additional checkout steps from %d configured entries", len(cm.ordered))
 	var lines []string
 	for _, entry := range cm.ordered {
 		// Skip the default checkout (handled separately)
@@ -180,6 +182,7 @@ func (cm *CheckoutManager) GenerateAdditionalCheckoutSteps(getActionPin func(str
 		}
 		lines = append(lines, generateCheckoutStepLines(entry, getActionPin)...)
 	}
+	checkoutManagerLog.Printf("Generated %d additional checkout step(s)", len(lines))
 	return lines
 }
 
@@ -199,6 +202,7 @@ func (cm *CheckoutManager) GenerateDefaultCheckoutStep(
 	getActionPin func(string) string,
 ) []string {
 	override := cm.GetDefaultCheckoutOverride()
+	checkoutManagerLog.Printf("Generating default checkout step: trialMode=%t, hasOverride=%t", trialMode, override != nil)
 
 	var sb strings.Builder
 	sb.WriteString("      - name: Checkout repository\n")
@@ -363,6 +367,7 @@ func ParseCheckoutConfigs(raw any) ([]*CheckoutConfig, error) {
 	if raw == nil {
 		return nil, nil
 	}
+	checkoutManagerLog.Printf("Parsing checkout configuration: type=%T", raw)
 
 	// Try single object first
 	if singleMap, ok := raw.(map[string]any); ok {

@@ -473,6 +473,7 @@ func DownloadWorkflowLogs(ctx context.Context, workflowName string, count int, s
 	}
 
 	// Build structured logs data
+	logsOrchestratorLog.Printf("Building logs data from %d processed runs (continuation=%t)", len(processedRuns), continuation != nil)
 	logsData := buildLogsData(processedRuns, outputDir, continuation)
 
 	// Write summary file if requested (default behavior unless disabled with empty string)
@@ -804,6 +805,7 @@ func normalizeSafeOutputType(safeOutputType string) string {
 
 // runContainsSafeOutputType checks if a run's agent_output.json contains a specific safe output type
 func runContainsSafeOutputType(runDir string, safeOutputType string, verbose bool) (bool, error) {
+	logsOrchestratorLog.Printf("Checking run for safe output type: dir=%s, type=%s", runDir, safeOutputType)
 	// Normalize the type for comparison (convert dashes to underscores)
 	normalizedType := normalizeSafeOutputType(safeOutputType)
 

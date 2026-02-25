@@ -96,6 +96,7 @@ func (e *ClaudeEngine) isClaudeResultPayload(line string) bool {
 
 // extractClaudeResultMetrics extracts metrics from Claude result payload
 func (e *ClaudeEngine) extractClaudeResultMetrics(line string) LogMetrics {
+	claudeLogsLog.Print("Extracting metrics from Claude result payload")
 	var metrics LogMetrics
 
 	trimmed := strings.TrimSpace(line)
@@ -136,6 +137,7 @@ func (e *ClaudeEngine) extractClaudeResultMetrics(line string) LogMetrics {
 	// Note: Duration extraction is handled in the main parsing logic where we have access to tool calls
 	// This is because we need to distribute duration among tool calls
 
+	claudeLogsLog.Printf("Extracted Claude result metrics: tokens=%d, cost=$%.4f, turns=%d", metrics.TokenUsage, metrics.EstimatedCost, metrics.Turns)
 	return metrics
 }
 
@@ -316,6 +318,9 @@ func (e *ClaudeEngine) parseClaudeJSONLog(logContent string, verbose bool) LogMe
 
 	// Finalize tool calls and sequences using shared helper
 	FinalizeToolCallsAndSequence(&metrics, toolCallMap, currentSequence)
+
+	claudeLogsLog.Printf("Parsed %d log entries: tokens=%d, cost=$%.4f, turns=%d, tool_types=%d",
+		len(logEntries), metrics.TokenUsage, metrics.EstimatedCost, metrics.Turns, len(metrics.ToolCalls))
 
 	if verbose && len(metrics.ToolSequences) > 0 {
 		totalTools := 0
