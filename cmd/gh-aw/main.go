@@ -466,6 +466,77 @@ func init() {
 	// Set version template to match the version subcommand format
 	rootCmd.SetVersionTemplate(string(constants.CLIExtensionPrefix) + " version {{.Version}}\n")
 
+	// Fix usage lines so subcommands show "gh aw <cmd>" instead of "gh <cmd>".
+	// Cobra derives the root name from the first word of Use ("gh" from "gh aw"),
+	// so CommandPath() for subcommands omits "aw". We use SetUsageFunc to
+	// post-process the default output, replacing "gh " with "gh aw " in the
+	// two lines that reference the command path.
+	rootCmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		fixPath := func(s string) string {
+			if s == "gh" {
+				return "gh aw"
+			}
+			if strings.HasPrefix(s, "gh ") && !strings.HasPrefix(s, "gh aw") {
+				return "gh aw " + s[3:]
+			}
+			return s
+		}
+		out := cmd.OutOrStderr()
+		fmt.Fprint(out, "Usage:")
+		if cmd.Runnable() {
+			fmt.Fprintf(out, "\n  %s", fixPath(cmd.UseLine()))
+		}
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(out, "\n  %s [command]", fixPath(cmd.CommandPath()))
+		}
+		if len(cmd.Aliases) > 0 {
+			fmt.Fprintf(out, "\n\nAliases:\n  %s", cmd.NameAndAliases())
+		}
+		if cmd.HasExample() {
+			fmt.Fprintf(out, "\n\nExamples:\n%s", cmd.Example)
+		}
+		if cmd.HasAvailableSubCommands() {
+			cmds := cmd.Commands()
+			if len(cmd.Groups()) == 0 {
+				fmt.Fprint(out, "\n\nAvailable Commands:")
+				for _, sub := range cmds {
+					if sub.IsAvailableCommand() || sub.Name() == "help" {
+						fmt.Fprintf(out, "\n  %-11s %s", sub.Name(), sub.Short)
+					}
+				}
+			} else {
+				for _, group := range cmd.Groups() {
+					fmt.Fprintf(out, "\n\n%s", group.Title)
+					for _, sub := range cmds {
+						if sub.GroupID == group.ID && (sub.IsAvailableCommand() || sub.Name() == "help") {
+							fmt.Fprintf(out, "\n  %-11s %s", sub.Name(), sub.Short)
+						}
+					}
+				}
+				if !cmd.AllChildCommandsHaveGroup() {
+					fmt.Fprint(out, "\n\nAdditional Commands:")
+					for _, sub := range cmds {
+						if sub.GroupID == "" && (sub.IsAvailableCommand() || sub.Name() == "help") {
+							fmt.Fprintf(out, "\n  %-11s %s", sub.Name(), sub.Short)
+						}
+					}
+				}
+			}
+		}
+		if cmd.HasAvailableLocalFlags() {
+			fmt.Fprintf(out, "\n\nFlags:\n%s", strings.TrimRight(cmd.LocalFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasAvailableInheritedFlags() {
+			fmt.Fprintf(out, "\n\nGlobal Flags:\n%s", strings.TrimRight(cmd.InheritedFlags().FlagUsages(), " \t\n"))
+		}
+		if cmd.HasAvailableSubCommands() {
+			fmt.Fprintf(out, "\n\nUse \"%s [command] --help\" for more information about a command.\n", fixPath(cmd.CommandPath()))
+		} else {
+			fmt.Fprintln(out)
+		}
+		return nil
+	})
+
 	// Create custom help command that supports "all" subcommand
 	customHelpCmd := &cobra.Command{
 		Use:   "help [command]",
