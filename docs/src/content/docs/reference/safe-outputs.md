@@ -1217,7 +1217,7 @@ See [Cross-Repository Operations](/gh-aw/reference/cross-repository/) technical 
 
 ### Group Reports (`group-reports:`)
 
-Controls whether failed workflow runs are grouped under a parent "[agentics] Failed runs" issue. This is opt-in and defaults to `false`.
+Controls whether failed workflow runs are grouped under a parent "[aw] Failed runs" issue. This is opt-in and defaults to `false`.
 
 ```yaml wrap
 safe-outputs:
