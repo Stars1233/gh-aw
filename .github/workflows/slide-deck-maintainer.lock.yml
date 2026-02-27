@@ -23,7 +23,7 @@
 #
 # Maintains the gh-aw slide deck by scanning repository content and detecting layout issues using Playwright
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"216ae8200889e1fdf9a0c0c5917c0653e9131f9a193a51c9a67f223ac00bc418"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"0b3d7f1cb6dbc12d69cb6f2f524b6c7eaec295bbc300df932437af7677e97e6c"}
 
 name: "Slide Deck Maintainer"
 "on":
@@ -287,7 +287,7 @@ jobs:
       - name: Create gh-aw temp directory
         run: bash /opt/gh-aw/actions/create_gh_aw_tmp_dir.sh
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           cache: npm
           cache-dependency-path: docs/package-lock.json

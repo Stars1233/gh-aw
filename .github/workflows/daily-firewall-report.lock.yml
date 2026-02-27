@@ -28,7 +28,7 @@
 #     - shared/reporting.md
 #     - shared/trending-charts-simple.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"242cb4c2a2510d7ee8406006878fc34be8be05f271cba1379a98ffdaf2cb0fe0"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"575da188e33143c8c5b5e07660a4f4d3302695314638124a21ac50fec6fd4b3a"}
 
 name: "Daily Firewall Logs Collector and Reporter"
 "on":
@@ -314,7 +314,7 @@ jobs:
           pip install --user --quiet numpy pandas matplotlib seaborn scipy
       - if: always()
         name: Upload charts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-charts
@@ -322,7 +322,7 @@ jobs:
           retention-days: 30
       - if: always()
         name: Upload source files and data
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-source-and-data

@@ -29,7 +29,7 @@
 #     - shared/reporting.md
 #     - shared/trending-charts-simple.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"bafa109221dd7788395c3712ded55f1c20366eaef13dd3987c5ca7015799350d"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"f20bb2cf4c1486e5487a38568f5ca68848b5398c2d33608bf051731c12e1a580"}
 
 name: "Daily Project Performance Summary Generator (Using Safe Inputs)"
 "on":
@@ -290,7 +290,7 @@ jobs:
           pip install --user --quiet numpy pandas matplotlib seaborn scipy
       - if: always()
         name: Upload charts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-charts
@@ -298,7 +298,7 @@ jobs:
           retention-days: 30
       - if: always()
         name: Upload source files and data
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-source-and-data

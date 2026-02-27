@@ -29,7 +29,7 @@
 #     - shared/reporting.md
 #     - shared/trending-charts-simple.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"c12ee1d68dbf447087d51abd3be3bfc9418a2143d48e2326070b55197028b828"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"e687ed6ea9c097f90e8e0c3181f674b2bf92734fd253c3408f6775da1b76e745"}
 
 name: "Agentic Workflow Audit Agent"
 "on":
@@ -330,7 +330,7 @@ jobs:
           pip install --user --quiet numpy pandas matplotlib seaborn scipy
       - if: always()
         name: Upload charts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-charts
@@ -338,7 +338,7 @@ jobs:
           retention-days: 30
       - if: always()
         name: Upload source files and data
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-source-and-data

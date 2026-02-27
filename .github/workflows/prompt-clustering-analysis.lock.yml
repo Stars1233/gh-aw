@@ -30,7 +30,7 @@
 #     - shared/reporting.md
 #     - shared/trending-charts-simple.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"c4de13d6035c4be451ed44a8a1679b53fd3126eb44d3c20a52166258c3310a94"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"333c982fb324ddf949b1860ce52c84135950bd4bc02494c21e88e8aaacc0e360"}
 
 name: "Copilot Agent Prompt Clustering Analysis"
 "on":
@@ -328,7 +328,7 @@ jobs:
           pip install --user --quiet numpy pandas matplotlib seaborn scipy
       - if: always()
         name: Upload charts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-charts
@@ -336,7 +336,7 @@ jobs:
           retention-days: 30
       - if: always()
         name: Upload source files and data
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           if-no-files-found: warn
           name: trending-source-and-data

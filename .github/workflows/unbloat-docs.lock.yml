@@ -28,7 +28,7 @@
 #     - shared/docs-server-lifecycle.md
 #     - shared/reporting.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"bb2aae4e487311cc80f8cd9db35b06a07b8271fdd8a7ff61694c5e1876a09be3"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"e12f2743b5993b77b7036fde9cf5e74e20de84de58f72454fcfb45df90afae4d"}
 
 name: "Documentation Unbloat"
 "on":
@@ -305,7 +305,7 @@ jobs:
       - name: Create gh-aw temp directory
         run: bash /opt/gh-aw/actions/create_gh_aw_tmp_dir.sh
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Setup Node.js

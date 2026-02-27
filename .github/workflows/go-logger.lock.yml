@@ -27,7 +27,7 @@
 #   Imports:
 #     - shared/go-make.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"6160c9a01f19aa6c63aa169965824e7f8ce09444b8da855ce3124b6e3dd766a0"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"f25ce343847e9c88cf0b683033fae1614998f81e330da7bf355bcf7a2e50e199"}
 
 name: "Go Logger Enhancement"
 "on":
@@ -280,7 +280,7 @@ jobs:
       - name: Create gh-aw temp directory
         run: bash /opt/gh-aw/actions/create_gh_aw_tmp_dir.sh
       - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           cache: true
           go-version-file: go.mod

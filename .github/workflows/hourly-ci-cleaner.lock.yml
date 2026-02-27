@@ -27,7 +27,7 @@
 #   Imports:
 #     - ../agents/ci-cleaner.agent.md
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"671a14d4b1a43ceb00db004fb0c5c4ba09d7ae14da6fd2703f3218a72d3d841f"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"f715c77536157d46d383a993c4e231ed9f29a36b211b1b17df979aae0699f650"}
 
 name: "CI Cleaner"
 "on":
@@ -306,7 +306,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make
       - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           cache: true
           go-version-file: go.mod

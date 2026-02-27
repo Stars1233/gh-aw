@@ -23,7 +23,7 @@
 #
 # Automatically formats and tidies code files (Go, JS, TypeScript) when code changes are pushed or on command
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"2808846f8bc82fccb0f29bd33f47aedcfd87f781bd89eb80af5ce458dfc407fe"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"c1ab537bf460e015b81437b1d7b086f0abfa3872ab893889dc7ca6173e4e0d73"}
 
 name: "Tidy"
 "on":
@@ -301,13 +301,13 @@ jobs:
       - name: Create gh-aw temp directory
         run: bash /opt/gh-aw/actions/create_gh_aw_tmp_dir.sh
       - name: Setup Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           cache: npm
           cache-dependency-path: actions/setup/js/package-lock.json
           node-version: "24"
       - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           cache: true
           go-version-file: go.mod
