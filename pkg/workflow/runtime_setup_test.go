@@ -693,7 +693,7 @@ func TestDeduplicatePreservesUserPythonVersion(t *testing.T) {
 	// and runs a python command, which auto-detects Python runtime
 	customSteps := `steps:
   - name: Setup Python
-    uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
     with:
       python-version: '3.9'
   - name: Run script
@@ -744,7 +744,7 @@ func TestDeduplicatePreservesUserPythonVersion(t *testing.T) {
 	}
 
 	// Verify the user's step still has the SHA reference
-	if !strings.Contains(deduplicatedSteps, "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065") {
+	if !strings.Contains(deduplicatedSteps, "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405") {
 		t.Error("Expected deduplicated steps to preserve user's SHA reference")
 	}
 }
