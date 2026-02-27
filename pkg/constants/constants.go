@@ -321,12 +321,12 @@ const PublicGitHubHost URL = "https://github.com"
 const GitHubCopilotMCPDomain = "api.githubcopilot.com"
 
 // DefaultClaudeCodeVersion is the default version of the Claude Code CLI.
-const DefaultClaudeCodeVersion Version = "2.1.52"
+const DefaultClaudeCodeVersion Version = "2.1.62"
 
 // DefaultCopilotVersion is the default version of the GitHub Copilot CLI.
 //
 // WARNING: UPGRADING COPILOT CLI REQUIRES A FULL INTEGRATION TEST RUN TO ENSURE COMPATIBILITY.
-const DefaultCopilotVersion Version = "0.0.415"
+const DefaultCopilotVersion Version = "0.0.419"
 
 // DefaultCopilotDetectionModel is the default model for the Copilot engine when used in the detection job
 // Updated to gpt-5.1-codex-mini after gpt-5-mini deprecation on 2026-01-17
@@ -390,7 +390,7 @@ const (
 )
 
 // DefaultCodexVersion is the default version of the OpenAI Codex CLI
-const DefaultCodexVersion Version = "0.104.0"
+const DefaultCodexVersion Version = "0.106.0"
 
 // DefaultGeminiVersion is the default version of the Google Gemini CLI
 const DefaultGeminiVersion Version = "0.29.0"
@@ -399,7 +399,7 @@ const DefaultGeminiVersion Version = "0.29.0"
 const DefaultGitHubMCPServerVersion Version = "v0.31.0"
 
 // DefaultFirewallVersion is the default version of the gh-aw-firewall (AWF) binary
-const DefaultFirewallVersion Version = "v0.20.2"
+const DefaultFirewallVersion Version = "v0.23.0"
 
 // AWF (Agentic Workflow Firewall) constants
 
@@ -413,7 +413,7 @@ const AWFProxyLogsDir = "/tmp/gh-aw/sandbox/firewall/logs"
 const AWFDefaultLogLevel = "info"
 
 // DefaultMCPGatewayVersion is the default version of the MCP Gateway (gh-aw-mcpg) Docker image
-const DefaultMCPGatewayVersion Version = "v0.1.5"
+const DefaultMCPGatewayVersion Version = "v0.1.6"
 
 // DefaultMCPGatewayContainer is the default container image for the MCP Gateway
 const DefaultMCPGatewayContainer = "ghcr.io/github/gh-aw-mcpg"
@@ -934,6 +934,27 @@ var DefaultGitHubToolsRemote = DefaultReadOnlyGitHubTools
 // DefaultGitHubTools is deprecated. Use DefaultGitHubToolsLocal or DefaultGitHubToolsRemote instead.
 // Kept for backward compatibility and defaults to local mode tools.
 var DefaultGitHubTools = DefaultGitHubToolsLocal
+
+// CopilotStemCommands defines commands that Copilot CLI treats as "stem" commands
+// (commands with subcommand matching via tree-sitter). When these appear in bash
+// tool lists without an explicit `:*` wildcard, the compiler automatically appends
+// `:*` to ensure proper permission matching for all subcommands.
+//
+// For example, `bash: ["dotnet"]` compiles to `--allow-tool shell(dotnet:*)` so that
+// "dotnet build", "dotnet test", etc. are all permitted.
+//
+// This list must be kept in sync with the stem configurations in Copilot CLI's
+// shell command parser (tree-sitter based).
+var CopilotStemCommands = map[string]bool{
+	"git": true, "gh": true, "glab": true,
+	"npm": true, "npx": true, "yarn": true, "pnpm": true,
+	"cargo": true, "go": true,
+	"composer": true, "pip": true, "pipenv": true, "poetry": true, "conda": true,
+	"mvn": true, "gradle": true, "gradlew": true,
+	"dotnet": true,
+	"bundle": true, "swift": true, "sbt": true, "flutter": true,
+	"mix": true, "cabal": true, "stack": true,
+}
 
 // DefaultBashTools defines basic bash commands that should be available by default when bash is enabled
 var DefaultBashTools = []string{

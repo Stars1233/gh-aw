@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -195,7 +197,7 @@ func AuditWorkflowRun(ctx context.Context, runID int64, owner, repo, hostname st
 
 		// Download artifacts for the run
 		auditLog.Printf("Downloading artifacts for run %d", runID)
-		err := downloadRunArtifacts(runID, runOutputDir, verbose)
+		err := downloadRunArtifacts(runID, runOutputDir, verbose, owner, repo, hostname)
 		if err != nil {
 			// Gracefully handle cases where the run legitimately has no artifacts
 			if errors.Is(err, ErrNoArtifacts) {
@@ -725,10 +727,7 @@ func generateAuditReport(processedRun ProcessedRun, metrics LogMetrics, download
 		}
 
 		// Sort tools by call count
-		var toolNames []string
-		for name := range toolStats {
-			toolNames = append(toolNames, name)
-		}
+		toolNames := slices.Collect(maps.Keys(toolStats))
 
 		// Display top tools
 		report.WriteString("| Tool | Calls | Max Input | Max Output | Max Duration |\n")

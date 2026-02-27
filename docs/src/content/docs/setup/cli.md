@@ -117,7 +117,7 @@ Commands are organized by workflow lifecycle: creating, building, testing, monit
 
 #### `init`
 
-Initialize repository for agentic workflows. Configures `.gitattributes`, Copilot instructions, prompt files, and logs `.gitignore`. Enables MCP server integration by default (use `--no-mcp` to skip). Without arguments, enters interactive mode for engine selection and secret configuration.
+Initialize repository for agentic workflows. Configures `.gitattributes`, creates the dispatcher agent file (`.github/agents/agentic-workflows.agent.md`), and logs `.gitignore`. Enables MCP server integration by default (use `--no-mcp` to skip). Without arguments, enters interactive mode for engine selection and secret configuration.
 
 ```bash wrap
 gh aw init                              # Interactive mode: select engine and configure secrets
@@ -230,6 +230,25 @@ gh aw compile --purge                      # Remove orphaned .lock.yml files
 **Strict Mode (`--strict`):** Enforces security best practices: no write permissions (use [safe-outputs](/gh-aw/reference/safe-outputs/)), explicit `network` config, no wildcard domains, pinned Actions, no deprecated fields. See [Strict Mode reference](/gh-aw/reference/frontmatter/#strict-mode-strict).
 
 **Shared Workflows:** Workflows without an `on` field are detected as shared components. Validated with relaxed schema and skip compilation. See [Imports reference](/gh-aw/reference/imports/).
+
+#### `validate`
+
+Validate agentic workflows by running the compiler with all linters enabled, without generating lock files. Equivalent to `gh aw compile --validate --no-emit --zizmor --actionlint --poutine`.
+
+```bash wrap
+gh aw validate                              # Validate all workflows
+gh aw validate my-workflow                  # Validate specific workflow
+gh aw validate my-workflow daily            # Validate multiple workflows
+gh aw validate --json                       # Output results in JSON format
+gh aw validate --strict                     # Enforce strict mode validation
+gh aw validate --fail-fast                  # Stop at the first error
+gh aw validate --dir custom/workflows       # Validate from custom directory
+gh aw validate --engine copilot             # Override AI engine
+```
+
+**Options:** `--engine/-e`, `--dir/-d`, `--strict`, `--json/-j`, `--fail-fast`, `--stats`, `--no-check-update`
+
+All linters (`zizmor`, `actionlint`, `poutine`), `--validate`, and `--no-emit` are always-on defaults and cannot be disabled. Accepts the same workflow ID format as `compile`.
 
 ### Testing
 
@@ -391,6 +410,8 @@ gh aw remove my-workflow
 #### `update`
 
 Update workflows based on `source` field (`owner/repo/path@ref`). By default, performs a 3-way merge to preserve local changes; use `--no-merge` to override with upstream. Semantic versions update within same major version.
+
+If no workflows in the repository contain a `source` field, the command exits gracefully with an informational message rather than an error. This is expected behavior for repositories that have not yet added updatable workflows.
 
 ```bash wrap
 gh aw update                              # Update all with source field

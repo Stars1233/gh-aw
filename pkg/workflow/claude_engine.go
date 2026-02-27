@@ -67,6 +67,21 @@ func (e *ClaudeEngine) GetRequiredSecretNames(workflowData *WorkflowData) []stri
 	return secrets
 }
 
+// GetSecretValidationStep returns the secret validation step for the Claude engine.
+// Returns an empty step if custom command is specified.
+func (e *ClaudeEngine) GetSecretValidationStep(workflowData *WorkflowData) GitHubActionStep {
+	if workflowData.EngineConfig != nil && workflowData.EngineConfig.Command != "" {
+		claudeLog.Printf("Skipping secret validation step: custom command specified (%s)", workflowData.EngineConfig.Command)
+		return GitHubActionStep{}
+	}
+	return GenerateMultiSecretValidationStep(
+		[]string{"ANTHROPIC_API_KEY"},
+		"Claude Code",
+		"https://github.github.com/gh-aw/reference/engines/#anthropic-claude-code",
+		getEngineEnvOverrides(workflowData),
+	)
+}
+
 func (e *ClaudeEngine) GetInstallationSteps(workflowData *WorkflowData) []GitHubActionStep {
 	claudeLog.Printf("Generating installation steps for Claude engine: workflow=%s", workflowData.Name)
 
@@ -89,14 +104,7 @@ func (e *ClaudeEngine) GetInstallationSteps(workflowData *WorkflowData) []GitHub
 		InstallStepName: "Install Claude Code CLI",
 	}
 
-	// Add secret validation step
-	secretValidation := GenerateMultiSecretValidationStep(
-		config.Secrets,
-		config.Name,
-		config.DocsURL,
-		getEngineEnvOverrides(workflowData),
-	)
-	steps = append(steps, secretValidation)
+	// Secret validation step is now generated in the activation job (GetSecretValidationStep).
 
 	// Determine Claude version
 	claudeVersion := config.Version
@@ -460,21 +468,5 @@ func (e *ClaudeEngine) GetFirewallLogsCollectionStep(workflowData *WorkflowData)
 
 // GetSquidLogsSteps returns the steps for uploading and parsing Squid logs (after secret redaction)
 func (e *ClaudeEngine) GetSquidLogsSteps(workflowData *WorkflowData) []GitHubActionStep {
-	var steps []GitHubActionStep
-
-	// Only add upload and parsing steps if firewall is enabled
-	if isFirewallEnabled(workflowData) {
-		claudeLog.Printf("Adding Squid logs upload and parsing steps for workflow: %s", workflowData.Name)
-
-		squidLogsUpload := generateSquidLogsUploadStep(workflowData.Name)
-		steps = append(steps, squidLogsUpload)
-
-		// Add firewall log parsing step to create step summary
-		firewallLogParsing := generateFirewallLogParsingStep(workflowData.Name)
-		steps = append(steps, firewallLogParsing)
-	} else {
-		claudeLog.Print("Firewall disabled, skipping Squid logs upload")
-	}
-
-	return steps
+	return defaultGetSquidLogsSteps(workflowData, claudeLog)
 }

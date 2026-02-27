@@ -105,7 +105,7 @@ Create a custom actions system that:
 │  │  └── README.md                                     │ │
 │  └────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
-```text
+```
 
 ### Component Responsibilities
 
@@ -166,7 +166,7 @@ gh-aw/
 ├── Makefile                         # Build targets (NO sync-shell-scripts or sync-js-scripts)
 └── .github/workflows/
     └── ci.yml                       # CI pipeline
-```text
+```
 
 **Runtime File Copy Flow (Current Architecture):**
 
@@ -197,7 +197,7 @@ actions/{action-name}/
 ├── src/                # Source files
 │   └── index.js        # Main entry point with FILES placeholder
 └── README.md           # Action documentation
-```text
+```
 
 ### action.yml Format
 
@@ -212,7 +212,7 @@ inputs:
 runs:
   using: 'node20'
   main: 'index.js'
-```text
+```
 
 ### Source File Pattern
 
@@ -234,7 +234,7 @@ for (const [filename, content] of Object.entries(FILES)) {
   fs.mkdirSync(path.dirname(filepath), { recursive: true });
   fs.writeFileSync(filepath, content, 'utf8');
 }
-```text
+```
 
 ## Build System
 
@@ -261,7 +261,7 @@ The build system is implemented entirely in Go and follows these steps:
 ```text
 actions/setup/js/*.cjs  (SOURCE OF TRUTH)  →  Runtime copy to /tmp/gh-aw/actions
 actions/setup/sh/*.sh   (SOURCE OF TRUTH)  →  Runtime copy to /tmp/gh-aw/actions
-```text
+```
 
 **Why this pattern?**
 - JavaScript and shell scripts live in `actions/setup/js/` and `actions/setup/sh/` as source of truth
@@ -283,7 +283,7 @@ make actions-validate
 
 # Clean generated files
 make actions-clean
-```text
+```
 
 ### Implementation Details
 
@@ -301,7 +301,7 @@ func getActionDependencies(actionName string) []string {
 
     return []string{}
 }
-```text
+```
 
 #### File Embedding
 
@@ -314,7 +314,7 @@ outputContent := filesRegex.ReplaceAllString(
     string(sourceContent), 
     fmt.Sprintf("const FILES = %s;", strings.TrimSpace(indentedJSON))
 )
-```text
+```
 
 ## Architectural Decisions
 
@@ -402,13 +402,13 @@ jobs:
   my-job:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       
       - name: Setup Workflow Scripts
         uses: ./actions/setup
         with:
           destination: /tmp/scripts
-```text
+```
 
 ### Creating a New Action
 
@@ -491,7 +491,7 @@ actions-build:
   needs: [lint]
   runs-on: ubuntu-latest
   steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
@@ -499,7 +499,7 @@ actions-build:
     - run: go mod verify
     - run: make actions-build
     - run: make actions-validate
-```text
+```
 
 ### Trigger Conditions
 
@@ -745,7 +745,7 @@ Script mode implements direct shell script execution instead of using GitHub Act
 **Checkout Step** (`generateCheckoutActionsFolder`):
 ```yaml
 - name: Checkout actions folder
-  uses: actions/checkout@v5
+  uses: actions/checkout@v6
   with:
     repository: github/gh-aw
     sparse-checkout: |
@@ -842,7 +842,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout actions folder
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           sparse-checkout: |
             actions
@@ -867,7 +867,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout actions folder
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: github/gh-aw
           sparse-checkout: |
@@ -904,7 +904,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             // JavaScript code here
-```text
+```
 
 ### Design Decisions
 
@@ -963,7 +963,7 @@ EOF
 # Update dependency mapping in pkg/cli/actions_build_command.go
 # Build the action
 make actions-build
-```text
+```
 
 #### 2. Register and Compile
 
@@ -980,7 +980,7 @@ workflow.DefaultScriptRegistry.RegisterWithAction(
 compiler := workflow.NewCompilerWithVersion("1.0.0")
 compiler.SetActionMode(workflow.ActionModeDev)
 compiler.CompileWorkflow("workflow.md")
-```text
+```
 
 #### 3. Result
 
@@ -995,7 +995,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           agent-output: /tmp/agent-output.json
-```text
+```
 
 ### Current Status
 

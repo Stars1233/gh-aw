@@ -70,6 +70,11 @@
       "version": "v5.6.0",
       "sha": "40f1582b2485089dde7abd97c1529aa768e1baff"
     },
+    "actions/setup-go@v6": {
+      "repo": "actions/setup-go",
+      "version": "v6",
+      "sha": "4b73464bb391d4059bd26b0524d20df3927bd417"
+    },
     "actions/setup-go@v6.2.0": {
       "repo": "actions/setup-go",
       "version": "v6.2.0",
@@ -109,6 +114,11 @@
       "repo": "actions/upload-artifact",
       "version": "v6",
       "sha": "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+    },
+    "anchore/sbom-action@v0": {
+      "repo": "anchore/sbom-action",
+      "version": "v0",
+      "sha": "17ae1740179002c89186b61233e0f892c3118b11"
     },
     "anchore/sbom-action@v0.22.2": {
       "repo": "anchore/sbom-action",

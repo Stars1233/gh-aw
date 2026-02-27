@@ -103,9 +103,9 @@ func TestCopilotEngineInstallationSteps(t *testing.T) {
 	// Test with no version (firewall feature disabled by default)
 	workflowData := &WorkflowData{}
 	steps := engine.GetInstallationSteps(workflowData)
-	// When firewall is disabled: secret validation + install (no Node.js needed with new installer) = 2 steps
-	if len(steps) != 2 {
-		t.Errorf("Expected 2 installation steps (secret validation + install), got %d", len(steps))
+	// Secret validation is now in the activation job; installation only has the install step = 1 step
+	if len(steps) != 1 {
+		t.Errorf("Expected 1 installation step (install), got %d", len(steps))
 	}
 
 	// Test with version (firewall feature disabled by default)
@@ -113,9 +113,9 @@ func TestCopilotEngineInstallationSteps(t *testing.T) {
 		EngineConfig: &EngineConfig{Version: "1.0.0"},
 	}
 	stepsWithVersion := engine.GetInstallationSteps(workflowDataWithVersion)
-	// When firewall is disabled: secret validation + install (no Node.js needed with new installer) = 2 steps
-	if len(stepsWithVersion) != 2 {
-		t.Errorf("Expected 2 installation steps with version (secret validation + install), got %d", len(stepsWithVersion))
+	// Secret validation is now in the activation job; installation only has the install step = 1 step
+	if len(stepsWithVersion) != 1 {
+		t.Errorf("Expected 1 installation step with version (install), got %d", len(stepsWithVersion))
 	}
 }
 
@@ -162,6 +162,15 @@ func TestCopilotEngineExecutionSteps(t *testing.T) {
 
 	if !strings.Contains(stepContent, "GITHUB_WORKSPACE: ${{ github.workspace }}") {
 		t.Errorf("Expected GITHUB_WORKSPACE environment variable in step content:\n%s", stepContent)
+	}
+
+	// Test that GITHUB_SERVER_URL and GITHUB_API_URL are present for GitHub Enterprise compatibility
+	if !strings.Contains(stepContent, "GITHUB_SERVER_URL: ${{ github.server_url }}") {
+		t.Errorf("Expected GITHUB_SERVER_URL environment variable in step content:\n%s", stepContent)
+	}
+
+	if !strings.Contains(stepContent, "GITHUB_API_URL: ${{ github.api_url }}") {
+		t.Errorf("Expected GITHUB_API_URL environment variable in step content:\n%s", stepContent)
 	}
 
 	// Test that GH_AW_SAFE_OUTPUTS is not present when SafeOutputs is nil
@@ -413,6 +422,73 @@ func TestCopilotEngineComputeToolArguments(t *testing.T) {
 				"edit": nil,
 			},
 			expected: []string{"--allow-tool", "github(get_file_contents)", "--allow-tool", "github(list_commits)", "--allow-tool", "shell(echo)", "--allow-tool", "shell(ls)", "--allow-tool", "write"},
+		},
+		// Stem command tests - commands that Copilot CLI matches with subcommands
+		{
+			name: "stem command gets wildcard suffix",
+			tools: map[string]any{
+				"bash": []any{"dotnet"},
+			},
+			expected: []string{"--allow-tool", "shell(dotnet:*)"},
+		},
+		{
+			name: "multiple stem commands get wildcard suffix",
+			tools: map[string]any{
+				"bash": []any{"cargo", "go", "npm"},
+			},
+			expected: []string{"--allow-tool", "shell(cargo:*)", "--allow-tool", "shell(go:*)", "--allow-tool", "shell(npm:*)"},
+		},
+		{
+			name: "stem command with space does not get wildcard",
+			tools: map[string]any{
+				"bash": []any{"dotnet build"},
+			},
+			expected: []string{"--allow-tool", "shell(dotnet build)"},
+		},
+		{
+			name: "stem command with explicit colon does not get wildcard",
+			tools: map[string]any{
+				"bash": []any{"git:checkout"},
+			},
+			expected: []string{"--allow-tool", "shell(git:checkout)"},
+		},
+		{
+			name: "non-stem command does not get wildcard",
+			tools: map[string]any{
+				"bash": []any{"echo", "curl"},
+			},
+			expected: []string{"--allow-tool", "shell(curl)", "--allow-tool", "shell(echo)"},
+		},
+		{
+			name: "mixed stem and non-stem commands",
+			tools: map[string]any{
+				"bash": []any{"dotnet", "echo", "npm", "curl", "git status"},
+			},
+			expected: []string{"--allow-tool", "shell(curl)", "--allow-tool", "shell(dotnet:*)", "--allow-tool", "shell(echo)", "--allow-tool", "shell(git status)", "--allow-tool", "shell(npm:*)"},
+		},
+		{
+			name: "all stem commands get wildcard",
+			tools: map[string]any{
+				"bash": []any{"git", "gh", "npm", "yarn", "cargo", "go", "pip", "dotnet", "flutter"},
+			},
+			expected: []string{
+				"--allow-tool", "shell(cargo:*)",
+				"--allow-tool", "shell(dotnet:*)",
+				"--allow-tool", "shell(flutter:*)",
+				"--allow-tool", "shell(gh:*)",
+				"--allow-tool", "shell(git:*)",
+				"--allow-tool", "shell(go:*)",
+				"--allow-tool", "shell(npm:*)",
+				"--allow-tool", "shell(pip:*)",
+				"--allow-tool", "shell(yarn:*)",
+			},
+		},
+		{
+			name: "stem command with existing :* wildcard passes through",
+			tools: map[string]any{
+				"bash": []any{"git:*"},
+			},
+			expected: []string{"--allow-tool", "shell(git:*)"},
 		},
 	}
 

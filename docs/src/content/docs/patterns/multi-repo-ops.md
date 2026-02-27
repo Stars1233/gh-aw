@@ -168,12 +168,12 @@ engine:
 
 steps:
   - name: Checkout main repo
-    uses: actions/checkout@v5
+    uses: actions/checkout@v6
     with:
       path: main-repo
 
   - name: Checkout secondary repo
-    uses: actions/checkout@v5
+    uses: actions/checkout@v6
     with:
       repository: org/secondary-repo
       token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
@@ -257,6 +257,7 @@ For organization-wide workflows:
 
 ## Related Documentation
 
+- [Cross-Repository Operations](/gh-aw/reference/cross-repository/) - Checkout and target-repo configuration
 - [Safe Outputs Reference](/gh-aw/reference/safe-outputs/) - Complete safe output configuration
 - [GitHub Tools](/gh-aw/reference/github-tools/) - GitHub API toolsets
 - [Security Best Practices](/gh-aw/introduction/architecture/) - Authentication and token security

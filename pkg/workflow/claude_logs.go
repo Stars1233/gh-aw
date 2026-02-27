@@ -96,6 +96,7 @@ func (e *ClaudeEngine) isClaudeResultPayload(line string) bool {
 
 // extractClaudeResultMetrics extracts metrics from Claude result payload
 func (e *ClaudeEngine) extractClaudeResultMetrics(line string) LogMetrics {
+	claudeLogsLog.Print("Extracting metrics from Claude result payload")
 	var metrics LogMetrics
 
 	trimmed := strings.TrimSpace(line)
@@ -136,6 +137,7 @@ func (e *ClaudeEngine) extractClaudeResultMetrics(line string) LogMetrics {
 	// Note: Duration extraction is handled in the main parsing logic where we have access to tool calls
 	// This is because we need to distribute duration among tool calls
 
+	claudeLogsLog.Printf("Extracted Claude result metrics: tokens=%d, cost=$%.4f, turns=%d", metrics.TokenUsage, metrics.EstimatedCost, metrics.Turns)
 	return metrics
 }
 
@@ -306,7 +308,8 @@ func (e *ClaudeEngine) parseClaudeJSONLog(logContent string, verbose bool) LogMe
 				if messageMap, ok := message.(map[string]any); ok {
 					if content, exists := messageMap["content"]; exists {
 						if contentArray, ok := content.([]any); ok {
-							e.parseToolCalls(contentArray, toolCallMap)
+							// Sequence return value intentionally discarded; only toolCallMap is needed here.
+							e.parseToolCallsWithSequence(contentArray, toolCallMap)
 						}
 					}
 				}
@@ -316,6 +319,9 @@ func (e *ClaudeEngine) parseClaudeJSONLog(logContent string, verbose bool) LogMe
 
 	// Finalize tool calls and sequences using shared helper
 	FinalizeToolCallsAndSequence(&metrics, toolCallMap, currentSequence)
+
+	claudeLogsLog.Printf("Parsed %d log entries: tokens=%d, cost=$%.4f, turns=%d, tool_types=%d",
+		len(logEntries), metrics.TokenUsage, metrics.EstimatedCost, metrics.Turns, len(metrics.ToolCalls))
 
 	if verbose && len(metrics.ToolSequences) > 0 {
 		totalTools := 0
@@ -422,86 +428,6 @@ func (e *ClaudeEngine) parseToolCallsWithSequence(contentArray []any, toolCallMa
 	}
 
 	return sequence
-}
-
-// parseToolCalls extracts tool call information from Claude log content array without sequence tracking
-func (e *ClaudeEngine) parseToolCalls(contentArray []any, toolCallMap map[string]*ToolCallInfo) {
-	for _, contentItem := range contentArray {
-		if contentMap, ok := contentItem.(map[string]any); ok {
-			if contentType, exists := contentMap["type"]; exists {
-				if typeStr, ok := contentType.(string); ok {
-					switch typeStr {
-					case "tool_use":
-						// Extract tool name
-						if toolName, exists := contentMap["name"]; exists {
-							if nameStr, ok := toolName.(string); ok {
-								// Prettify tool name
-								prettifiedName := PrettifyToolName(nameStr)
-
-								// Special handling for bash - each invocation is unique
-								if nameStr == "Bash" {
-									if input, exists := contentMap["input"]; exists {
-										if inputMap, ok := input.(map[string]any); ok {
-											if command, exists := inputMap["command"]; exists {
-												if commandStr, ok := command.(string); ok {
-													// Create unique bash entry with command info, avoiding colons
-													uniqueBashName := "bash_" + ShortenCommand(commandStr)
-													prettifiedName = uniqueBashName
-												}
-											}
-										}
-									}
-								}
-
-								// Calculate input size from the input field
-								inputSize := 0
-								if input, exists := contentMap["input"]; exists {
-									inputSize = e.estimateInputSize(input)
-								}
-
-								// Initialize or update tool call info
-								if toolInfo, exists := toolCallMap[prettifiedName]; exists {
-									toolInfo.CallCount++
-									if inputSize > toolInfo.MaxInputSize {
-										toolInfo.MaxInputSize = inputSize
-									}
-								} else {
-									toolCallMap[prettifiedName] = &ToolCallInfo{
-										Name:          prettifiedName,
-										CallCount:     1,
-										MaxInputSize:  inputSize,
-										MaxOutputSize: 0, // Will be updated when we find tool results
-										MaxDuration:   0, // Will be updated when we find execution timing
-									}
-								}
-							}
-						}
-					case "tool_result":
-						// Extract output size for tool results
-						if content, exists := contentMap["content"]; exists {
-							if contentStr, ok := content.(string); ok {
-								// Estimate token count (rough approximation: 1 token = ~4 characters)
-								outputSize := len(contentStr) / 4
-
-								// Find corresponding tool call to update max output size
-								if toolUseID, exists := contentMap["tool_use_id"]; exists {
-									if _, ok := toolUseID.(string); ok {
-										// This is simplified - in a full implementation we'd track tool_use_id to tool name mapping
-										// For now, we'll update the max output size for all tools (conservative estimate)
-										for _, toolInfo := range toolCallMap {
-											if outputSize > toolInfo.MaxOutputSize {
-												toolInfo.MaxOutputSize = outputSize
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
 }
 
 // estimateInputSize estimates the input size in tokens from a tool input object

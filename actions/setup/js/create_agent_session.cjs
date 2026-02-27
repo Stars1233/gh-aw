@@ -3,6 +3,7 @@
 
 const { getErrorMessage } = require("./error_helpers.cjs");
 const { resolveTargetRepoConfig, resolveAndValidateRepo } = require("./repo_helpers.cjs");
+const { getBaseBranch } = require("./get_base_branch.cjs");
 
 const fs = require("fs");
 const path = require("path");
@@ -65,13 +66,26 @@ async function main() {
     summaryContent += "The following agent sessions would be created if staged mode was disabled:\n\n";
 
     for (const [index, item] of createAgentSessionItems.entries()) {
+      // Resolve and validate target repository for this item using the standardized helper
+      const repoResult = resolveAndValidateRepo(item, defaultTargetRepo, allowedRepos, "agent session");
+      if (!repoResult.success) {
+        summaryContent += `### Task ${index + 1}\n\n`;
+        summaryContent += `**Error:** ${repoResult.error}\n\n`;
+        summaryContent += "---\n\n";
+        continue;
+      }
+      const { repo: effectiveRepo, repoParts } = repoResult;
+
+      // Resolve base branch: use custom config if set, otherwise resolve dynamically
+      // Pass target repo for cross-repo scenarios
+      const baseBranch = process.env.GITHUB_AW_AGENT_SESSION_BASE || (await getBaseBranch(repoParts));
+
       summaryContent += `### Task ${index + 1}\n\n`;
       summaryContent += `**Description:**\n${item.body || "No description provided"}\n\n`;
 
-      const baseBranch = process.env.GITHUB_AW_AGENT_SESSION_BASE || "main";
       summaryContent += `**Base Branch:** ${baseBranch}\n\n`;
 
-      summaryContent += `**Target Repository:** ${defaultTargetRepo}\n\n`;
+      summaryContent += `**Target Repository:** ${effectiveRepo}\n\n`;
 
       summaryContent += "---\n\n";
     }
@@ -81,9 +95,6 @@ async function main() {
     await core.summary.write();
     return;
   }
-
-  // Get base branch from environment or use current branch
-  const baseBranch = process.env.GITHUB_AW_AGENT_SESSION_BASE || process.env.GITHUB_REF_NAME || "main";
 
   // Process all agent session items
   const createdTasks = [];
@@ -104,7 +115,13 @@ async function main() {
       core.error(`E004: ${repoResult.error}`);
       continue;
     }
-    const effectiveRepo = repoResult.repo;
+    const { repo: effectiveRepo, repoParts } = repoResult;
+
+    // Resolve base branch: use custom config if set, otherwise resolve dynamically
+    // Dynamic resolution is needed for issue_comment events on PRs where the base branch
+    // is not available in GitHub Actions expressions and requires an API call
+    // Pass target repo for cross-repo scenarios
+    const baseBranch = process.env.GITHUB_AW_AGENT_SESSION_BASE || (await getBaseBranch(repoParts));
 
     try {
       // Write task description to a temporary file

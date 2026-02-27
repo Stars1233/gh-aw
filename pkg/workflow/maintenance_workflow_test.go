@@ -287,6 +287,43 @@ func TestGenerateMaintenanceWorkflow_ActionTag(t *testing.T) {
 		}
 	})
 
+	t.Run("release mode with action-tag and resolver uses SHA-pinned ref", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		// Set up an action resolver with a cached SHA for the setup action
+		cache := NewActionCache(tmpDir)
+		cache.Set("github/gh-aw/actions/setup", "v0.47.4", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		resolver := NewActionResolver(cache)
+
+		workflowDataListWithResolver := []*WorkflowData{
+			{
+				Name:              "test-workflow",
+				ActionResolver:    resolver,
+				ActionPinWarnings: make(map[string]bool),
+				SafeOutputs: &SafeOutputsConfig{
+					CreateIssues: &CreateIssuesConfig{
+						Expires: 48,
+					},
+				},
+			},
+		}
+
+		err := GenerateMaintenanceWorkflow(workflowDataListWithResolver, tmpDir, "v1.0.0", ActionModeRelease, "v0.47.4", false)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		content, err := os.ReadFile(filepath.Join(tmpDir, "agentics-maintenance.yml"))
+		if err != nil {
+			t.Fatalf("Expected maintenance workflow to be generated: %v", err)
+		}
+		expectedRef := "github/gh-aw/actions/setup@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v0.47.4"
+		if !strings.Contains(string(content), expectedRef) {
+			t.Errorf("Expected SHA-pinned ref %q, got:\n%s", expectedRef, string(content))
+		}
+		if strings.Contains(string(content), "uses: ./actions/setup") {
+			t.Errorf("Expected no local path in release mode with action-tag, got:\n%s", string(content))
+		}
+	})
+
 	t.Run("dev mode ignores action-tag and uses local path", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		err := GenerateMaintenanceWorkflow(workflowDataList, tmpDir, "v1.0.0", ActionModeDev, "v0.47.4", false)

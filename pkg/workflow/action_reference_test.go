@@ -341,20 +341,14 @@ func TestResolveSetupActionReference(t *testing.T) {
 }
 
 func TestResolveSetupActionReferenceWithData(t *testing.T) {
-	t.Run("release mode with WorkflowData resolves SHA", func(t *testing.T) {
+	t.Run("release mode with resolver resolves SHA", func(t *testing.T) {
 		// Create mock action resolver and cache
 		cache := NewActionCache("")
 		resolver := NewActionResolver(cache)
 
-		data := &WorkflowData{
-			ActionResolver: resolver,
-			ActionCache:    cache,
-			StrictMode:     false,
-		}
-
 		// The resolver will fail to resolve github/gh-aw/actions/setup@v1.0.0
 		// since it's not a real tag, but it should fall back gracefully
-		ref := ResolveSetupActionReference(ActionModeRelease, "v1.0.0", "", data)
+		ref := ResolveSetupActionReference(ActionModeRelease, "v1.0.0", "", resolver)
 
 		// Without a valid pin or successful resolution, should return tag-based reference
 		expectedRef := "github/gh-aw/actions/setup@v1.0.0"
@@ -363,7 +357,7 @@ func TestResolveSetupActionReferenceWithData(t *testing.T) {
 		}
 	})
 
-	t.Run("release mode with nil data returns tag-based reference", func(t *testing.T) {
+	t.Run("release mode with nil resolver returns tag-based reference", func(t *testing.T) {
 		ref := ResolveSetupActionReference(ActionModeRelease, "v1.0.0", "", nil)
 		expectedRef := "github/gh-aw/actions/setup@v1.0.0"
 		if ref != expectedRef {

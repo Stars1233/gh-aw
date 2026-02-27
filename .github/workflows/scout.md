@@ -39,6 +39,8 @@ tools:
 safe-outputs:
   add-comment:
     max: 1
+  add-labels:
+    max: 1
   messages:
     footer: "> 🔭 *Intelligence gathered by [{workflow_name}]({run_url})*"
     run-started: "🏕️ Scout on patrol! [{workflow_name}]({run_url}) is blazing trails through this {event_type}..."
@@ -132,70 +134,78 @@ Create a comprehensive research summary that includes:
 
 **IMPORTANT**: You must ALWAYS post a comment with your findings, even if you did not find any relevant information. If you didn't find anything useful, explain what you searched for and why no relevant results were found.
 
+**Report Formatting**: Use h3 (###) or lower for all headers in the report to maintain proper document hierarchy. Wrap long sections in `<details><summary><b>Section Name</b></summary>` tags to improve readability.
+
 Your research summary should be formatted as a comment with:
 
 ```markdown
-# 🔍 Scout Research Report
+### 🔍 Scout Research Report
 
 *Triggered by @${{ github.actor }}*
 
-## Executive Summary
+### Executive Summary
 [Brief overview of key findings - or state that no relevant findings were discovered]
 
 <details>
-<summary>Click to expand detailed findings</summary>
-## Research Findings
+<summary><b>Click to expand detailed findings</b></summary>
 
-### [Topic 1]
+### Research Findings
+
+#### [Topic 1]
 [Detailed findings with sources]
 
-### [Topic 2]
+#### [Topic 2]
 [Detailed findings with sources]
 
 [... additional topics ...]
 
-## Recommendations
+### Recommendations
 - [Specific actionable recommendation 1]
 - [Specific actionable recommendation 2]
 - [...]
 
-## Key Sources
+### Key Sources
 - [Source 1 with link]
 - [Source 2 with link]
 - [...]
 
-## Suggested Next Steps
+### Suggested Next Steps
 1. [Action item 1]
 2. [Action item 2]
 [...]
+
 </details>
 ```
 
 **If no relevant findings were discovered**, use this format:
 
 ```markdown
-# 🔍 Scout Research Report
+### 🔍 Scout Research Report
 
 *Triggered by @${{ github.actor }}*
 
-## Executive Summary
+### Executive Summary
 No relevant findings were discovered for this research request.
 
-## Search Conducted
+### Search Conducted
 - Query 1: [What you searched for]
 - Query 2: [What you searched for]
 - [...]
 
-## Explanation
+### Explanation
 [Brief explanation of why no relevant results were found - e.g., topic too specific, no recent information available, search terms didn't match available content, etc.]
 
-## Suggestions
+### Suggestions
 [Optional: Suggestions for alternative searches or approaches that might yield better results]
 ```
 
 ## SHORTER IS BETTER
 
 Focus on the most relevant and actionable information. Avoid overwhelming detail. Keep it concise and to the point.
+
+## Labeling
+
+After completing your research, **always label the triggering issue or pull request** with the `scout` label using the `add-label` safe output. This helps track which issues have been researched.
 
 ## Important Notes
 

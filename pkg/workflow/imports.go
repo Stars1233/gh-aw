@@ -630,8 +630,12 @@ func mergeSafeOutputConfig(result *SafeOutputsConfig, config map[string]any, c *
 	if result.NoOp == nil && importedConfig.NoOp != nil {
 		result.NoOp = importedConfig.NoOp
 	}
-	if result.ThreatDetection == nil && importedConfig.ThreatDetection != nil {
-		result.ThreatDetection = importedConfig.ThreatDetection
+	// ThreatDetection is a workflow-level concern; only merge from an import that
+	// explicitly carries a threat-detection key (not just an auto-enabled default).
+	if result.ThreatDetection == nil {
+		if _, hasTD := config["threat-detection"]; hasTD && importedConfig.ThreatDetection != nil {
+			result.ThreatDetection = importedConfig.ThreatDetection
+		}
 	}
 
 	// Merge meta-configuration fields (only set if empty/zero in result)
@@ -680,6 +684,11 @@ func mergeSafeOutputConfig(result *SafeOutputsConfig, config map[string]any, c *
 	}
 	if result.Mentions == nil && importedConfig.Mentions != nil {
 		result.Mentions = importedConfig.Mentions
+	}
+
+	// Merge steps: concatenate imported steps after main workflow's steps
+	if len(importedConfig.Steps) > 0 {
+		result.Steps = append(result.Steps, importedConfig.Steps...)
 	}
 
 	// NOTE: Jobs are NOT merged here. They are handled separately in compiler_orchestrator.go

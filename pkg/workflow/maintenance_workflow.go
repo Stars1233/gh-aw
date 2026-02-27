@@ -140,6 +140,7 @@ permissions: {}
 
 jobs:
   close-expired-entities:
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-slim
     permissions:
       discussions: write
@@ -149,9 +150,12 @@ jobs:
 `)
 
 	// Get the setup action reference (local or remote based on mode)
-	// Pass nil for data since maintenance workflow doesn't have WorkflowData
-	// In release mode without data, it will return tag-based reference
-	setupActionRef := ResolveSetupActionReference(actionMode, version, actionTag, nil)
+	// Use the first available WorkflowData's ActionResolver to enable SHA pinning
+	var resolver ActionSHAResolver
+	if len(workflowDataList) > 0 && workflowDataList[0].ActionResolver != nil {
+		resolver = workflowDataList[0].ActionResolver
+	}
+	setupActionRef := ResolveSetupActionReference(actionMode, version, actionTag, resolver)
 
 	// Add checkout step only in dev mode (for local action paths)
 	if actionMode == ActionModeDev {
@@ -215,6 +219,7 @@ jobs:
 		// Add compile-workflows job
 		yaml.WriteString(`
   compile-workflows:
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -260,6 +265,7 @@ jobs:
             await main();
 
   zizmor-scan:
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-slim
     needs: compile-workflows
     permissions:
@@ -283,6 +289,7 @@ jobs:
           echo "✓ Zizmor security scan completed"
 
   secret-validation:
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-slim
     permissions:
       contents: read

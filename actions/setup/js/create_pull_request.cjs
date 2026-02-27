@@ -7,7 +7,6 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { updateActivationComment } = require("./update_activation_comment.cjs");
 const { getTrackerID } = require("./get_tracker_id.cjs");
-const { addExpirationComment } = require("./expiration_helpers.cjs");
 const { removeDuplicateTitleFromDescription } = require("./remove_duplicate_title.cjs");
 const { sanitizeTitle, applyTitlePrefix } = require("./sanitize_title.cjs");
 const { getErrorMessage } = require("./error_helpers.cjs");
@@ -19,6 +18,7 @@ const { parseBoolTemplatable } = require("./templatable.cjs");
 const { generateFooterWithMessages } = require("./messages_footer.cjs");
 const { normalizeBranchName } = require("./normalize_branch_name.cjs");
 const { pushExtraEmptyCommit } = require("./extra_empty_commit.cjs");
+const { getBaseBranch } = require("./get_base_branch.cjs");
 
 /**
  * @typedef {import('./types/handler-factory').HandlerFactoryFunction} HandlerFactoryFunction
@@ -100,9 +100,24 @@ async function main(config = {}) {
   const autoMerge = parseBoolTemplatable(config.auto_merge, false);
   const expiresHours = config.expires ? parseInt(String(config.expires), 10) : 0;
   const maxCount = config.max || 1; // PRs are typically limited to 1
-  let baseBranch = config.base_branch || "";
   const maxSizeKb = config.max_patch_size ? parseInt(String(config.max_patch_size), 10) : 1024;
   const { defaultTargetRepo, allowedRepos } = resolveTargetRepoConfig(config);
+
+  // Base branch from config (if set) - validated at factory level if explicit
+  // Dynamic base branch resolution happens per-message after resolving the actual target repo
+  const configBaseBranch = config.base_branch || null;
+
+  // SECURITY: If base branch is explicitly configured, validate it at factory level
+  if (configBaseBranch) {
+    const normalizedConfigBase = normalizeBranchName(configBaseBranch);
+    if (!normalizedConfigBase) {
+      throw new Error(`Invalid baseBranch: sanitization resulted in empty string (original: "${configBaseBranch}")`);
+    }
+    if (configBaseBranch !== normalizedConfigBase) {
+      throw new Error(`Invalid baseBranch: contains invalid characters (original: "${configBaseBranch}", normalized: "${normalizedConfigBase}")`);
+    }
+  }
+
   const includeFooter = parseBoolTemplatable(config.footer, true);
   const fallbackAsIssue = config.fallback_as_issue !== false; // Default to true (fallback enabled)
 
@@ -112,29 +127,13 @@ async function main(config = {}) {
     throw new Error("GH_AW_WORKFLOW_ID environment variable is required");
   }
 
-  if (!baseBranch) {
-    throw new Error("base_branch configuration is required");
-  }
-
-  // SECURITY: Sanitize base branch name to prevent shell injection (defense in depth)
-  // Even though base_branch comes from workflow config, normalize it for safety
-  const originalBaseBranch = baseBranch;
-  baseBranch = normalizeBranchName(baseBranch);
-  if (!baseBranch) {
-    throw new Error(`Invalid base_branch: sanitization resulted in empty string (original: "${originalBaseBranch}")`);
-  }
-  // Fail if base branch name changes during normalization (indicates invalid config)
-  if (originalBaseBranch !== baseBranch) {
-    throw new Error(`Invalid base_branch: contains invalid characters (original: "${originalBaseBranch}", normalized: "${baseBranch}")`);
-  }
-
   // Extract triggering issue number from context (for auto-linking PRs to issues)
   const triggeringIssueNumber = context.payload?.issue?.number && !context.payload?.issue?.pull_request ? context.payload.issue.number : undefined;
 
   // Check if we're in staged mode
   const isStaged = process.env.GH_AW_SAFE_OUTPUTS_STAGED === "true";
 
-  core.info(`Base branch: ${baseBranch}`);
+  core.info(`Base branch: ${configBaseBranch || "(dynamic - resolved per target repo)"}`);
   core.info(`Default target repo: ${defaultTargetRepo}`);
   if (allowedRepos.size > 0) {
     core.info(`Allowed repos: ${Array.from(allowedRepos).join(", ")}`);
@@ -221,6 +220,29 @@ async function main(config = {}) {
     }
     const { repo: itemRepo, repoParts } = repoResult;
     core.info(`Target repository: ${itemRepo}`);
+
+    // Resolve base branch for this target repository
+    // Use config value if set, otherwise resolve dynamically for the specific target repo
+    // Dynamic resolution is needed for issue_comment events on PRs where the base branch
+    // is not available in GitHub Actions expressions and requires an API call
+    let baseBranch = configBaseBranch || (await getBaseBranch(repoParts));
+
+    // SECURITY: Sanitize dynamically resolved base branch to prevent shell injection
+    const originalBaseBranch = baseBranch;
+    baseBranch = normalizeBranchName(baseBranch);
+    if (!baseBranch) {
+      return {
+        success: false,
+        error: `Invalid base branch: sanitization resulted in empty string (original: "${originalBaseBranch}")`,
+      };
+    }
+    if (originalBaseBranch !== baseBranch) {
+      return {
+        success: false,
+        error: `Invalid base branch: contains invalid characters (original: "${originalBaseBranch}", normalized: "${baseBranch}")`,
+      };
+    }
+    core.info(`Base branch for ${itemRepo}: ${baseBranch}`);
 
     // Check if patch file exists and has valid content
     if (!patchFilePath || !fs.existsSync(patchFilePath)) {
@@ -673,16 +695,23 @@ async function main(config = {}) {
 >
 > The patch file is available in the \`agent-artifacts\` artifact in the workflow run linked above.
 
-To apply the patch locally:
+To create a pull request with the changes:
 
 \`\`\`sh
-# Download the artifact from the workflow run ${runUrl}
-# (Use GitHub MCP tools if gh CLI is not available)
+# Download the artifact from the workflow run
 gh run download ${runId} -n agent-artifacts -D /tmp/agent-artifacts-${runId}
 
-# The patch file will be at agent-artifacts/tmp/gh-aw/${patchFileName} after download
+# Create a new branch
+git checkout -b ${branchName}
+
 # Apply the patch (--3way handles cross-repo patches where files may already exist)
 git am --3way /tmp/agent-artifacts-${runId}/${patchFileName}
+
+# Push the branch to origin
+git push origin ${branchName}
+
+# Create the pull request
+gh pr create --title '${title}' --base ${baseBranch} --head ${branchName} --repo ${repoParts.owner}/${repoParts.repo}
 \`\`\`
 ${patchPreview}`;
 
@@ -936,11 +965,17 @@ ${patchPreview}`;
 
 ---
 
-**Note:** This was originally intended as a pull request, but PR creation failed. The changes have been pushed to the branch [\`${branchName}\`](${branchUrl}).
+> [!NOTE]
+> This was originally intended as a pull request, but PR creation failed. The changes have been pushed to the branch [\`${branchName}\`](${branchUrl}).
+>
+> **Original error:** ${errorMessage}
 
-**Original error:** ${errorMessage}
+To create the pull request manually:
 
-You can manually create a pull request from the branch if needed.${patchPreview}`;
+\`\`\`sh
+gh pr create --title "${title}" --base ${baseBranch} --head ${branchName} --repo ${repoParts.owner}/${repoParts.repo}
+\`\`\`
+${patchPreview}`;
 
       try {
         const { data: issue } = await github.rest.issues.create({

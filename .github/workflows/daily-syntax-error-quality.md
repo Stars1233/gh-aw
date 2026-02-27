@@ -33,7 +33,7 @@ timeout-minutes: 20
 strict: true
 steps:
   - name: Setup Go
-    uses: actions/setup-go@v5
+    uses: actions/setup-go@v6.3.0
     with:
       go-version-file: go.mod
       cache: true
@@ -48,6 +48,8 @@ steps:
       echo "gh-aw binary is ready at ./gh-aw"
 imports:
   - shared/reporting.md
+features:
+  copilot-requests: true
 ---
 
 {{#runtime-import? .github/shared-instructions.md}}

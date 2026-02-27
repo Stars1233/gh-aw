@@ -177,7 +177,18 @@ The YAML frontmatter supports these fields:
       window: 60
       ignored-roles: [admin, maintain]
     ```
-- **`features:`** - Feature flags for experimental features (object)
+- **`features:`** - Feature flags for experimental or optional features (object)
+  - Each flag is a key-value pair; boolean flags (`true`/`false`) or string values are accepted
+  - Known feature flags:
+    - `copilot-requests: true` - Use GitHub Actions token for Copilot authentication instead of `COPILOT_GITHUB_TOKEN` secret; injects `copilot-requests: write` permission and sets `S2STOKENS=true` (Copilot engine only)
+    - `mcp-gateway: true` - Enable MCP Gateway for routing MCP server calls through a unified HTTP gateway (experimental)
+    - `dangerous-permissions-write: true` - Allow explicitly granting write permissions in strict mode (use with caution)
+    - `disable-xpia-prompt: true` - Disable the built-in cross-prompt injection attack (XPIA) system prompt
+  - Example:
+    ```yaml
+    features:
+      copilot-requests: true
+    ```
 - **`imports:`** - Array of workflow specifications to import (array)
   - Format: `owner/repo/path@ref` or local paths like `shared/common.md`
   - Markdown files under `.github/agents/` are treated as custom agent files
@@ -230,6 +241,33 @@ The YAML frontmatter supports these fields:
         if: "hashFiles('go.mod') != ''"   # Only install Go when go.mod exists
     ```
 
+- **`checkout:`** - Override how the repository is checked out in the agent job (object or array)
+  - By default, the workflow automatically checks out the repository. Use this field to customize checkout behavior.
+  - Single checkout (object):
+    ```yaml
+    checkout:
+      fetch-depth: 0              # Fetch full history (default: 1 = shallow clone)
+      github-token: ${{ secrets.MY_PAT }}  # Override token for private repos
+    ```
+  - Multiple checkouts (array):
+    ```yaml
+    checkout:
+      - path: .
+        fetch-depth: 0
+      - repository: owner/other-repo
+        path: ./libs/other
+        ref: main
+    ```
+  - Supported fields per checkout entry:
+    - `repository:` - Repository in `owner/repo` format (defaults to current repository)
+    - `ref:` - Branch, tag, or SHA to check out (defaults to triggering ref)
+    - `path:` - Relative path within `GITHUB_WORKSPACE` (defaults to workspace root)
+    - `fetch-depth:` - Number of commits to fetch; `0` = full history, `1` = shallow (default)
+    - `sparse-checkout:` - Newline-separated glob patterns for sparse checkout
+    - `submodules:` - Submodule handling: `"recursive"`, `"true"`, or `"false"`
+    - `lfs:` - Download Git LFS objects (boolean, default: `false`)
+    - `github-token:` - Token for authentication (`${{ secrets.MY_PAT }}`); credentials removed after checkout
+
 - **`jobs:`** - Groups together all the jobs that run in the workflow (object)
   - Standard GitHub Actions jobs configuration
   - Each job can have: `name`, `runs-on`, `steps`, `needs`, `if`, `env`, `permissions`, `timeout-minutes`, etc.
@@ -246,11 +284,11 @@ The YAML frontmatter supports these fields:
     ```
 
 - **`engine:`** - AI processor configuration
-  - String format: `"copilot"` (default, recommended), `"claude"`, or `"codex"`
+  - String format: `"copilot"` (default, recommended), `"claude"`, `"codex"`, or `"gemini"`
   - Object format for extended configuration:
     ```yaml
     engine:
-      id: copilot                       # Required: coding agent identifier (copilot, claude, or codex)
+      id: copilot                       # Required: coding agent identifier (copilot, claude, codex, or gemini)
       version: beta                     # Optional: version of the action (has sensible default)
       model: gpt-5                      # Optional: LLM model to use (has sensible default)
       agent: technical-doc-writer       # Optional: custom agent file (Copilot only, references .github/agents/{agent}.agent.md)
@@ -264,6 +302,7 @@ The YAML frontmatter supports these fields:
           level_group: 1
     ```
   - **Note**: The `version`, `model`, `max-turns`, and `max-concurrency` fields have sensible defaults and can typically be omitted unless you need specific customization.
+  - **`gemini` engine**: Google Gemini CLI. Requires `GEMINI_API_KEY` secret. Does not support `max-turns`, `web-fetch`, `web-search`, or plugins. Supports AWF firewall and LLM gateway.
 
 - **`network:`** - Network access control for AI engines (top-level field)
   - String format: `"defaults"` (curated allow-list of development domains)
@@ -336,6 +375,12 @@ The YAML frontmatter supports these fields:
     - `args:` - Additional command-line arguments (local mode only)
     - `read-only:` - Restrict to read-only operations (boolean)
     - `github-token:` - Custom GitHub token
+    - `lockdown:` - Enable lockdown mode to limit content surfaced from public repositories to items authored by users with push access (boolean, default: false)
+    - `app:` - GitHub App configuration for token minting; when set, mints an installation access token at workflow start that overrides `github-token`
+      - `app-id:` - GitHub App ID (required, e.g., `${{ vars.APP_ID }}`)
+      - `private-key:` - GitHub App private key (required, e.g., `${{ secrets.APP_PRIVATE_KEY }}`)
+      - `owner:` - Optional installation owner (defaults to current repository owner)
+      - `repositories:` - Optional list of repositories to grant access to (array)
     - `toolsets:` - Enable specific GitHub toolset groups (array only)
       - **Default toolsets** (when unspecified): `context`, `repos`, `issues`, `pull_requests` (excludes `users` as GitHub Actions tokens don't support user operations)
       - **All toolsets**: `context`, `repos`, `issues`, `pull_requests`, `actions`, `code_security`, `dependabot`, `discussions`, `experiments`, `gists`, `labels`, `notifications`, `orgs`, `projects`, `secret_protection`, `security_advisories`, `stargazers`, `users`, `search`
@@ -441,7 +486,7 @@ The YAML frontmatter supports these fields:
         target: "*"                     # Optional: target for comments (default: "triggering")
         hide-older-comments: true       # Optional: minimize previous comments from same workflow
         allowed-reasons: [outdated]     # Optional: restrict hiding reasons (default: outdated)
-        discussions: false              # Optional: set false to exclude discussions:write permission (default: true)
+        discussions: true               # Optional: set false to exclude discussions:write permission (default: true)
         target-repo: "owner/repo"       # Optional: cross-repository
     ```
 
@@ -973,6 +1018,16 @@ The YAML frontmatter supports these fields:
     - When `true`, emits step summary messages instead of making GitHub API calls; useful for testing without side effects
   - `env:` - Environment variables passed to all safe output jobs (object)
     - Values typically reference secrets: `MY_VAR: ${{ secrets.MY_SECRET }}`
+  - `steps:` - Custom steps injected into all safe-output jobs, running after repository checkout and before safe-output code (array)
+    - Useful for installing dependencies or performing setup needed by safe-output logic
+    - Example:
+      ```yaml
+      safe-outputs:
+        steps:
+          - name: Install custom dependencies
+            run: npm install my-package
+        create-issue:
+      ```
   - `max-bot-mentions:` - Maximum bot trigger references (e.g. `@copilot`, `@github-actions`) allowed in output before all excess are escaped with backticks (integer or expression, default: 10)
     - Set to `0` to escape all bot trigger phrases
     - Example: `max-bot-mentions: 3`
@@ -990,7 +1045,7 @@ The YAML frontmatter supports these fields:
   - `max-patch-size:` - Maximum allowed git patch size in kilobytes (integer, default: 1024 KB = 1 MB)
     - Patches exceeding this size are rejected to prevent accidental large changes
   - `group-reports:` - Group workflow failure reports as sub-issues (boolean, default: `false`)
-    - When `true`, creates a parent `[agentics] Failed runs` issue that tracks all workflow failures as sub-issues; useful for larger repositories
+    - When `true`, creates a parent `[aw] Failed runs` issue that tracks all workflow failures as sub-issues; useful for larger repositories
   - `app:` - GitHub App credentials for minting installation access tokens (object)
     - When configured, generates a token from the app and uses it for all safe output operations (alternative to `github-token`)
     - Fields:
@@ -1378,7 +1433,7 @@ Use GitHub Actions context expressions throughout the workflow content. **Note: 
 - **`${{ steps.* }}`** - Any outputs from previous steps (e.g., `${{ steps.my-step.outputs.result }}`)
 - **`${{ github.event.inputs.* }}`** - Any workflow inputs when triggered by workflow_dispatch (e.g., `${{ github.event.inputs.environment }}`)
 
-All other expressions are dissallowed.
+All other expressions are disallowed.
 
 ### Sanitized Context Text (`needs.activation.outputs.text`)
 
@@ -2064,8 +2119,8 @@ Agentic workflows compile to GitHub Actions YAML:
 
 ### Breaking Configuration Changes
 
-- **`custom` engine removed** (v0.46.1) - The `custom` engine type is no longer supported. Workflows using `engine: custom` must migrate to `copilot`, `claude`, or `codex`.
-- **`copilot-sdk` engine removed** (v0.46.1) - The `copilot-sdk` engine has been removed. Update any workflows referencing this engine.
+- **`custom` engine removed** - The `custom` engine type is no longer supported. Workflows using `engine: custom` must migrate to `copilot`, `claude`, `codex`, or `gemini`.
+- **`copilot-sdk` engine removed** - The `copilot-sdk` engine has been removed. Update any workflows referencing this engine.
 - **Status Comments**: Status comments must now be explicitly enabled with `status-comment: true`. Previously coupled with `reaction`, now independently configured.
 - **Temporary ID Format**: Changed from `aw_` + 12 hex chars to `aw_` + 3-8 alphanumeric chars. Update references in existing workflows accordingly.
 

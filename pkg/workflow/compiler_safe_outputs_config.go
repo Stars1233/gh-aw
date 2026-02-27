@@ -197,6 +197,7 @@ var handlerRegistry = map[string]handlerBuilder{
 			AddIfNotEmpty("required_title_prefix", c.RequiredTitlePrefix).
 			AddIfNotEmpty("target-repo", c.TargetRepoSlug).
 			AddStringSlice("allowed_repos", c.AllowedRepos).
+			AddIfNotEmpty("state_reason", c.StateReason).
 			Build()
 	},
 	"close_discussion": func(cfg *SafeOutputsConfig) map[string]any {
@@ -454,14 +455,8 @@ var handlerRegistry = map[string]handlerBuilder{
 			AddStringSlice("allowed_repos", c.AllowedRepos).
 			AddDefault("max_patch_size", maxPatchSize).
 			AddTemplatableBool("footer", getEffectiveFooterForTemplatable(c.Footer, cfg.Footer)).
-			AddBoolPtr("fallback_as_issue", c.FallbackAsIssue)
-		// Add base_branch - use custom value if specified, otherwise use github.base_ref || github.ref_name
-		// This handles PR contexts where github.ref_name is "123/merge" which is invalid as a target branch
-		if c.BaseBranch != "" {
-			builder.AddDefault("base_branch", c.BaseBranch)
-		} else {
-			builder.AddDefault("base_branch", "${{ github.base_ref || github.ref_name }}")
-		}
+			AddBoolPtr("fallback_as_issue", c.FallbackAsIssue).
+			AddIfNotEmpty("base_branch", c.BaseBranch)
 		return builder.Build()
 	},
 	"push_to_pull_request_branch": func(cfg *SafeOutputsConfig) map[string]any {
@@ -480,7 +475,6 @@ var handlerRegistry = map[string]handlerBuilder{
 			AddStringSlice("labels", c.Labels).
 			AddIfNotEmpty("if_no_changes", c.IfNoChanges).
 			AddIfNotEmpty("commit_title_suffix", c.CommitTitleSuffix).
-			AddDefault("base_branch", "${{ github.base_ref || github.ref_name }}").
 			AddDefault("max_patch_size", maxPatchSize).
 			Build()
 	},

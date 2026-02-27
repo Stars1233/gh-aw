@@ -127,10 +127,23 @@ func addWorkflowsWithPR(workflows []*ResolvedWorkflow, opts AddOptions) (int, st
 	}
 
 	if err := commitChanges(commitMessage, opts.Verbose); err != nil {
-		if rollbackErr := tracker.RollbackAllFiles(opts.Verbose); rollbackErr != nil && opts.Verbose {
-			fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("Failed to rollback files: %v", rollbackErr)))
-		}
-		return 0, "", fmt.Errorf("failed to commit files: %w", err)
+		// Don't rollback - leave the workflow files on disk for manual recovery.
+		// Return a richly formatted error with clear instructions so the user can
+		// commit and push manually. The top-level error handler will print this.
+		return 0, "", fmt.Errorf(
+			"failed to commit workflow files: %w\n\n"+
+				"The workflow files have been written to disk and staged in git.\n"+
+				"Please commit the files manually, then either push them to the\n"+
+				"repository or create a pull request:\n\n"+
+				"  git commit -m %q\n"+
+				"  git push\n\n"+
+				"Or to create a pull request:\n\n"+
+				"  git checkout -b %s\n"+
+				"  git commit -m %q\n"+
+				"  git push -u origin %s\n"+
+				"  gh pr create --title %q",
+			err, commitMessage, branchName, commitMessage, branchName, prTitle,
+		)
 	}
 
 	// Push branch

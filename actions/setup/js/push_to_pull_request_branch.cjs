@@ -31,19 +31,22 @@ async function main(config = {}) {
   const ifNoChanges = config.if_no_changes || "warn";
   const commitTitleSuffix = config.commit_title_suffix || "";
   const maxSizeKb = config.max_patch_size ? parseInt(String(config.max_patch_size), 10) : 1024;
-  const baseBranch = config.base_branch || "";
   const maxCount = config.max || 0; // 0 means no limit
 
   // Cross-repo support: resolve target repository from config
   // This allows pushing to PRs in a different repository than the workflow
   const { defaultTargetRepo, allowedRepos } = resolveTargetRepoConfig(config);
 
+  // Base branch from config (if set) - used only for logging at factory level
+  // Dynamic base branch resolution happens per-message after resolving the actual target repo
+  const configBaseBranch = config.base_branch || null;
+
   // Check if we're in staged mode
   const isStaged = process.env.GH_AW_SAFE_OUTPUTS_STAGED === "true";
 
   core.info(`Target: ${target}`);
-  if (baseBranch) {
-    core.info(`Base branch: ${baseBranch}`);
+  if (configBaseBranch) {
+    core.info(`Base branch (from config): ${configBaseBranch}`);
   }
   if (titlePrefix) {
     core.info(`Title prefix: ${titlePrefix}`);

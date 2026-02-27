@@ -51,6 +51,82 @@ export default defineConfig({
 	experimental: {
 		clientPrerender: false
 	},
+	redirects: {
+		// Status → Labs → Agent Factory → Agent Factory Status chain
+		'/status/': '/gh-aw/agent-factory-status/',
+		'/labs/': '/gh-aw/agent-factory-status/',
+		'/agent-factory/': '/gh-aw/agent-factory-status/',
+
+		// Blog post date correction
+		'/blog/2026-01-12-meet-the-workflows/': '/gh-aw/blog/2026-01-13-meet-the-workflows/',
+
+		// Start-here → Get-started → current paths
+		'/start-here/concepts/': '/gh-aw/introduction/how-they-work/',
+		'/start-here/quick-start/': '/gh-aw/setup/quick-start/',
+
+		// Get-started → current paths
+		'/get-started/concepts/': '/gh-aw/introduction/how-they-work/',
+		'/get-started/quick-start/': '/gh-aw/setup/quick-start/',
+
+		// Introduction how-it-works → how-they-work
+		'/introduction/how-it-works/': '/gh-aw/introduction/how-they-work/',
+
+		// Tools → Setup renames
+		'/tools/cli/': '/gh-aw/setup/cli/',
+		'/tools/mcp-server/': '/gh-aw/reference/gh-aw-as-mcp-server/',
+		'/tools/agentic-authoring/': '/gh-aw/setup/creating-workflows/',
+
+		// Samples → Examples renames
+		'/samples/coding-development/': '/gh-aw/examples/issue-pr-events/coding-development/',
+		'/samples/quality-testing/': '/gh-aw/examples/issue-pr-events/quality-testing/',
+		'/samples/triage-analysis/': '/gh-aw/examples/issue-pr-events/triage-analysis/',
+		'/samples/research-planning/': '/gh-aw/examples/scheduled/research-planning/',
+
+		// Setup renames
+		'/setup/agentic-authoring/': '/gh-aw/setup/creating-workflows/',
+		'/setup/mcp-server/': '/gh-aw/reference/gh-aw-as-mcp-server/',
+
+		// Reference renames
+		'/reference/tokens/': '/gh-aw/reference/auth/',
+		'/reference/custom-agents/': '/gh-aw/reference/copilot-custom-agents/',
+		'/reference/custom-agent/': '/gh-aw/reference/custom-agent-for-aw/',
+
+		// Guides → Patterns renames
+		'/guides/chatops/': '/gh-aw/patterns/chat-ops/',
+		'/guides/issueops/': '/gh-aw/patterns/issue-ops/',
+		'/guides/labelops/': '/gh-aw/patterns/label-ops/',
+		'/guides/dailyops/': '/gh-aw/patterns/daily-ops/',
+		'/guides/dispatchops/': '/gh-aw/patterns/dispatch-ops/',
+		'/guides/monitoring/': '/gh-aw/patterns/monitoring/',
+		'/guides/multirepoops/': '/gh-aw/patterns/multi-repo-ops/',
+		'/guides/orchestration/': '/gh-aw/patterns/orchestration/',
+		'/guides/siderepoops/': '/gh-aw/patterns/side-repo-ops/',
+		'/guides/specops/': '/gh-aw/patterns/spec-ops/',
+		'/guides/researchplanassign/': '/gh-aw/patterns/task-ops/',
+		'/guides/trialops/': '/gh-aw/patterns/trial-ops/',
+
+		// Examples → Patterns renames
+		'/examples/comment-triggered/chatops/': '/gh-aw/patterns/chat-ops/',
+		'/examples/scheduled/dailyops/': '/gh-aw/patterns/daily-ops/',
+		'/examples/issue-pr-events/issueops/': '/gh-aw/patterns/issue-ops/',
+		'/examples/issue-pr-events/labelops/': '/gh-aw/patterns/label-ops/',
+		'/examples/issue-pr-events/projectops/': '/gh-aw/patterns/project-ops/',
+
+		// Patterns unhyphenated → hyphenated slugs
+		'/patterns/centralrepoops/': '/gh-aw/patterns/central-repo-ops/',
+		'/patterns/chatops/': '/gh-aw/patterns/chat-ops/',
+		'/patterns/dailyops/': '/gh-aw/patterns/daily-ops/',
+		'/patterns/dataops/': '/gh-aw/patterns/data-ops/',
+		'/patterns/dispatchops/': '/gh-aw/patterns/dispatch-ops/',
+		'/patterns/issueops/': '/gh-aw/patterns/issue-ops/',
+		'/patterns/labelops/': '/gh-aw/patterns/label-ops/',
+		'/patterns/multirepoops/': '/gh-aw/patterns/multi-repo-ops/',
+		'/patterns/projectops/': '/gh-aw/patterns/project-ops/',
+		'/patterns/siderepoops/': '/gh-aw/patterns/side-repo-ops/',
+		'/patterns/specops/': '/gh-aw/patterns/spec-ops/',
+		'/patterns/taskops/': '/gh-aw/patterns/task-ops/',
+		'/patterns/trialops/': '/gh-aw/patterns/trial-ops/',
+	},
 	integrations: [
 		mermaid(),
 		starlight({
@@ -218,6 +294,7 @@ export default defineConfig({
 						{ label: 'Compilation Process', link: '/reference/compilation-process/' },
 						{ label: 'Concurrency', link: '/reference/concurrency/' },
 						{ label: 'Copilot Agent Files', link: '/reference/copilot-custom-agents/' },
+						{ label: 'Cross-Repository', link: '/reference/cross-repository/' },
 						{ label: 'Custom Safe Outputs', link: '/reference/custom-safe-outputs/' },
 						{ label: 'Dependabot', link: '/reference/dependabot/' },
 						{ label: 'Environment Variables', link: '/reference/environment-variables/' },
@@ -250,6 +327,7 @@ export default defineConfig({
 						{ label: 'Triggers', link: '/reference/triggers/' },
 						{ label: 'WASM Compilation', link: '/reference/wasm-compilation/' },
 						{ label: 'Workflow Structure', link: '/reference/workflow-structure/' },
+						{ label: 'Fork Support', link: '/reference/fork-support/' },
 					],
 				},
 				{

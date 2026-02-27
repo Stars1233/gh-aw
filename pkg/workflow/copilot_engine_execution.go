@@ -86,6 +86,15 @@ func (e *CopilotEngine) GetExecutionSteps(workflowData *WorkflowData, logFile st
 		copilotArgs = append(copilotArgs, "--agent", agentIdentifier)
 	}
 
+	// Add --autopilot and --max-autopilot-continues when max-continuations > 1
+	// Never apply autopilot flags to detection jobs; they are only meaningful for the agent run.
+	isDetectionJob := workflowData.SafeOutputs == nil
+	if !isDetectionJob && workflowData.EngineConfig != nil && workflowData.EngineConfig.MaxContinuations > 1 {
+		maxCont := workflowData.EngineConfig.MaxContinuations
+		copilotExecLog.Printf("Enabling autopilot mode with max-autopilot-continues=%d", maxCont)
+		copilotArgs = append(copilotArgs, "--autopilot", "--max-autopilot-continues", strconv.Itoa(maxCont))
+	}
+
 	// Add tool permission arguments based on configuration
 	toolArgs := e.computeCopilotToolArguments(workflowData.Tools, workflowData.SafeOutputs, workflowData.SafeInputs, workflowData)
 	if len(toolArgs) > 0 {
@@ -144,7 +153,6 @@ func (e *CopilotEngine) GetExecutionSteps(workflowData *WorkflowData, logFile st
 	// Copilot CLI reads it natively - no --model flag in the shell command needed.
 	needsModelFlag := !modelConfigured
 	// Check if this is a detection job (has no SafeOutputs config)
-	isDetectionJob := workflowData.SafeOutputs == nil
 	var modelEnvVar string
 	if isDetectionJob {
 		modelEnvVar = constants.EnvVarModelDetectionCopilot
@@ -247,6 +255,12 @@ COPILOT_CLI_INSTRUCTION="$(cat /tmp/gh-aw/aw-prompts/prompt.txt)"
 		"GITHUB_HEAD_REF":           "${{ github.head_ref }}",
 		"GITHUB_REF_NAME":           "${{ github.ref_name }}",
 		"GITHUB_WORKSPACE":          "${{ github.workspace }}",
+		// Pass GitHub server URL and API URL for GitHub Enterprise compatibility.
+		// In standard GitHub.com environments these resolve to https://github.com and
+		// https://api.github.com. In GitHub Enterprise they resolve to the enterprise
+		// server URL (e.g. https://COMPANY.ghe.com and https://COMPANY.ghe.com/api/v3).
+		"GITHUB_SERVER_URL": "${{ github.server_url }}",
+		"GITHUB_API_URL":    "${{ github.api_url }}",
 	}
 
 	// When copilot-requests feature is enabled, set S2STOKENS=true to allow the Copilot CLI
@@ -303,7 +317,6 @@ COPILOT_CLI_INSTRUCTION="$(cat /tmp/gh-aw/aw-prompts/prompt.txt)"
 		env[constants.CopilotCLIModelEnvVar] = workflowData.EngineConfig.Model
 	} else {
 		// No model configured - use fallback GitHub variable with shell expansion
-		isDetectionJob := workflowData.SafeOutputs == nil
 		if isDetectionJob {
 			env[constants.EnvVarModelDetectionCopilot] = fmt.Sprintf("${{ vars.%s || '' }}", constants.EnvVarModelDetectionCopilot)
 		} else {

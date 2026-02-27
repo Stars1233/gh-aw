@@ -1,7 +1,7 @@
 # Developer Instructions
 
-**Version**: 2.9
-**Last Updated**: 2026-02-24
+**Version**: 3.2
+**Last Updated**: 2026-02-27
 **Purpose**: Consolidated development guidelines for GitHub Agentic Workflows
 
 This document consolidates specifications from the scratchpad directory into unified developer instructions. It provides architecture patterns, security guidelines, code organization rules, and testing practices.
@@ -455,6 +455,42 @@ func validateIssueConfig(cfg CreateIssueConfig) error {
     return nil
 }
 ```
+
+### YAML Parser Compatibility
+
+GitHub Agentic Workflows uses **`goccy/go-yaml` v1.18.0** (YAML 1.2 compliant parser). This affects validation behavior and tool integration.
+
+**YAML 1.1 vs 1.2 boolean parsing**:
+
+YAML 1.1 parsers (including Python's PyYAML and many older tools) treat certain plain scalars as booleans:
+
+| Keyword | YAML 1.1 Value | YAML 1.2 Value (gh-aw) |
+|---------|----------------|------------------------|
+| `on`, `yes`, `y`, `ON`, `Yes` | `true` (boolean) | string `"on"`, `"yes"`, etc. |
+| `off`, `no`, `n`, `OFF`, `No` | `false` (boolean) | string `"off"`, `"no"`, etc. |
+
+Only `true` and `false` are boolean literals in YAML 1.2. GitHub Actions also uses YAML 1.2, so gh-aw's parser choice ensures full compatibility.
+
+**Impact on the `on:` trigger key**: Python's `yaml.safe_load` parses the workflow trigger key `on:` as the boolean `True`, producing false positives when validating gh-aw workflows. The workflow is valid — the Python tool is applying the wrong spec version.
+
+**Correct local validation**:
+```bash
+# ✅ Use gh-aw's built-in compiler (YAML 1.2 compliant)
+gh aw compile workflow.md
+```
+
+**Avoid**:
+```bash
+# ❌ Reports false positives — on: key becomes boolean True
+python -c "import yaml; yaml.safe_load(open('workflow.md'))"
+```
+
+**For tool developers** integrating with gh-aw, use YAML 1.2-compliant parsers:
+- Go: `github.com/goccy/go-yaml` (used by gh-aw)
+- Python: `ruamel.yaml` (not PyYAML)
+- JavaScript: `yaml` package v2+
+
+See `scratchpad/yaml-version-gotchas.md` for the full keyword reference and migration guidance.
 
 ---
 
@@ -1166,10 +1202,10 @@ steps:
 **Pinned Actions**:
 ```yaml
 # ✅ Pin actions to SHA
-- uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab  # v3.5.2
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
 # ❌ Avoid unpinned versions
-- uses: actions/checkout@v3
+- uses: actions/checkout@v6
 ```
 
 ### Input Validation
@@ -1463,7 +1499,7 @@ sequenceDiagram
 ```yaml
 # .github/workflows/common-setup.yml
 steps:
-  - uses: actions/checkout@v3
+  - uses: actions/checkout@v6
   - uses: actions/setup-go@v4
     with:
       go-version: '1.21'
@@ -2008,6 +2044,7 @@ These files are loaded automatically by compatible AI tools (e.g., GitHub Copilo
 - [Activation Output Transformations](./activation-output-transformations.md) - Compiler expression transformation details
 - [HTML Entity Mention Bypass Fix](./html-entity-mention-bypass-fix.md) - Security fix: entity-encoded @mention bypass
 - [Template Syntax Sanitization](./template-syntax-sanitization.md) - T24: template delimiter neutralization
+- [YAML Version Gotchas](./yaml-version-gotchas.md) - YAML 1.1 vs 1.2 parser compatibility: `on:` key behavior, false positive prevention
 
 ### External References
 
@@ -2019,6 +2056,9 @@ These files are loaded automatically by compatible AI tools (e.g., GitHub Copilo
 ---
 
 **Document History**:
+- v3.2 (2026-02-27): Fixed 42 non-standard code fence closing markers across 12 spec files (`` ```text `` and `` ```yaml `` incorrectly used as closing fences in actions.md, code-organization.md, github-actions-security-best-practices.md, and 9 others); identified 1 new test artifact file (smoke-test-22422877284.md) as non-spec content
+- v3.1 (2026-02-26): Fixed 173 non-standard code fence closing markers across 20 spec files (`` ```text `` incorrectly closing `` ```go ``, `` ```yaml ``, and other language blocks); files fixed include code-organization.md, validation-architecture.md, actions.md, safe-output-messages.md, github-actions-security-best-practices.md, and 15 others
+- v3.0 (2026-02-25): Added YAML Parser Compatibility section (YAML 1.1 vs 1.2 boolean parsing, `on:` trigger key false positive, YAML 1.2 parser recommendations); added yaml-version-gotchas.md to Related Documentation; fixed 17 non-standard closing code fences in yaml-version-gotchas.md
 - v2.9 (2026-02-24): Added Engine Interface Architecture (ISP 7-interface design, BaseEngine, EngineRegistry), JavaScript Content Sanitization Pipeline with HTML entity bypass fix (T24 template delimiter neutralization), and Activation Output Transformations compiler behavior; added 4 new Related Documentation links
 - v2.8 (2026-02-23): Documented PR #17769 features: unassign-from-user safe output, blocked deny-list for assign/unassign, standardized error code registry, templatable integer fields, safe outputs prompt template system, XPIA defense policy, MCP template expression escaping, status-comment decoupling, sandbox.agent migration, agent instruction files in .github/agents/
 - v2.6 (2026-02-20): Fixed 8 tone issues across 4 spec files, documented post-processing extraction pattern and CLI flag propagation rule from PR #17316, analyzed 61 files

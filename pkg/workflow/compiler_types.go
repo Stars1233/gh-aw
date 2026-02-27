@@ -176,6 +176,8 @@ func NewCompiler(opts ...CompilerOption) *Compiler {
 	// Auto-detect action mode based on version in case version has been update
 	c.actionMode = DetectActionMode(c.version)
 
+	logTypes.Printf("Created compiler: version=%s, actionMode=%s, skipValidation=%t, strictMode=%t", c.version, c.actionMode, c.skipValidation, c.strictMode)
+
 	return c
 }
 
@@ -462,6 +464,7 @@ type WorkflowData struct {
 	ActionMode            ActionMode           // action mode for workflow compilation (dev, release, script)
 	HasExplicitGitHubTool bool                 // true if tools.github was explicitly configured in frontmatter
 	InlinedImports        bool                 // if true, inline all imports at compile time (from inlined-imports frontmatter field)
+	CheckoutConfigs       []*CheckoutConfig    // user-configured checkout settings from frontmatter
 }
 
 // BaseSafeOutputConfig holds common configuration fields for all safe output types
@@ -525,6 +528,8 @@ type SafeOutputsConfig struct {
 	Footer                          *bool                                  `yaml:"footer,omitempty"`                    // Global footer control - when false, omits visible footer from all safe outputs (XML markers still included)
 	GroupReports                    bool                                   `yaml:"group-reports,omitempty"`             // If true, create parent "Failed runs" issue for agent failures (default: false)
 	MaxBotMentions                  *string                                `yaml:"max-bot-mentions,omitempty"`          // Maximum bot trigger references (e.g. 'fixes #123') allowed before filtering. Default: 10. Supports integer or GitHub Actions expression.
+	Steps                           []any                                  `yaml:"steps,omitempty"`                     // User-provided steps injected after setup/checkout and before safe-output code
+	IDToken                         *string                                `yaml:"id-token,omitempty"`                  // Override id-token permission: "write" to force-add, "none" to disable auto-detection
 	AutoInjectedCreateIssue         bool                                   `yaml:"-"`                                   // Internal: true when create-issues was automatically injected by the compiler (not user-configured)
 }
 

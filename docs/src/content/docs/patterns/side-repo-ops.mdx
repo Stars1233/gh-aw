@@ -64,7 +64,7 @@ cd my-project-automation
 
 ### 2. Configure Personal Access Token (PAT)
 
-Create a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) with repository access to your main repository and grant these permissions: **Contents** (Read), **Issues** (Read+Write), **Pull requests** (Read+Write), and **Metadata** (Read).
+Create a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new?name=GH_AW_MAIN_REPO_TOKEN&description=GitHub+Agentic+Workflows+-+Cross-repository+access&contents=read&issues=write&pull_requests=write) (this link pre-fills the token name, description, and permissions) with repository access to your main repository and grant these permissions: **Contents** (Read), **Issues** (Read+Write), **Pull requests** (Read+Write), and **Metadata** (Read).
 
 For classic PATs, use the `repo` scope. Store the token as a secret:
 
@@ -400,6 +400,7 @@ This creates a feedback loop where the side repository tracks automation effecti
 
 ## Related Documentation
 
+- [Cross-Repository Operations](/gh-aw/reference/cross-repository/) - Checkout and target-repo configuration
 - [Safe Outputs Reference](/gh-aw/reference/safe-outputs/) - Complete safe output configuration
 - [GitHub Tools](/gh-aw/reference/github-tools/) - GitHub API toolsets
 - [Authentication](/gh-aw/reference/auth/) - Token types and precedence

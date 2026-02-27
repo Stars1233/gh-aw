@@ -91,6 +91,7 @@ func (p *ScheduleParser) parseInterval() (string, error) {
 	if len(p.tokens) < 2 {
 		return "", errors.New("invalid interval format, expected 'every N unit' or 'every Nunit'")
 	}
+	scheduleLog.Printf("Parsing interval schedule: tokens=%v", p.tokens)
 
 	// Check if "on weekdays" suffix is present at the end
 	hasWeekdaysSuffix := p.hasWeekdaysSuffix()
@@ -275,6 +276,7 @@ func (p *ScheduleParser) parseBase() (string, error) {
 	}
 
 	baseType := p.tokens[0]
+	scheduleLog.Printf("Parsing base schedule: type=%s, tokens=%v", baseType, p.tokens)
 	var minute, hour, day, month, weekday string
 
 	// Default time is 00:00

@@ -28,7 +28,7 @@ In your pull request, instruct the GitHub Copilot coding agent to modify the `de
 - Adding the necessary configuration in the frontmatter
 - Updating the task description to use the feature
 - Including validation steps to verify the feature works correctly
-```text
+```
 
 **What the agent should do:**
 
@@ -53,7 +53,7 @@ gh workflow run dev.md --ref your-branch-name
 
 # Check the workflow run status
 gh run list --workflow=dev.md --limit 5
-```text
+```
 
 #### Option B: Using the GitHub Web UI
 
@@ -120,7 +120,7 @@ Based on the results:
 
 ```text
 Modify dev.md → Recompile → Trigger workflow → Review results → Iterate
-```text
+```
 
 Continue this cycle until the workflow succeeds and the feature works as expected.
 
@@ -139,7 +139,7 @@ tools:
 # Test New Tool Integration
 
 Use the new-tool to perform [specific task] and verify the results.
-```text
+```
 
 ### Example 2: Testing New Engine Features
 
@@ -152,7 +152,7 @@ new_feature_flag: true
 # Test New Engine Feature
 
 Demonstrate the new engine feature by [description of test].
-```text
+```
 
 ### Example 3: Testing Safe Output Enhancements
 
@@ -168,7 +168,7 @@ safe-outputs:
 # Test New Safe Output Type
 
 Create multiple instances of the new output type to verify rate limiting and targeting work correctly.
-```text
+```
 
 ## Best Practices
 
