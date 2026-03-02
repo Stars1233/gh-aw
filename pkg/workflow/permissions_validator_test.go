@@ -342,7 +342,7 @@ func TestValidatePermissions_ComplexScenarios(t *testing.T) {
 		expectMsg        []string
 	}{
 		{
-			name:        "Shorthand read-all with default toolsets",
+			name:        "Shorthand read-all with default toolsets (sufficient in read-only mode)",
 			permissions: NewPermissionsReadAll(),
 			githubToolConfig: &GitHubToolConfig{
 				Toolset:  GitHubToolsets{"default"},
@@ -351,7 +351,7 @@ func TestValidatePermissions_ComplexScenarios(t *testing.T) {
 			expectMsg: []string{}, // read-all satisfies the read-only permission requirements
 		},
 		{
-			name:        "All: read with discussions toolset",
+			name:        "All: read with discussions toolset (sufficient in read-only mode)",
 			permissions: NewPermissionsAllRead(),
 			githubToolConfig: &GitHubToolConfig{
 				Toolset:  GitHubToolsets{"discussions"},
