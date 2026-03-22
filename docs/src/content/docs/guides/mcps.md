@@ -11,6 +11,14 @@ This guide covers using custom [Model Context Protocol](/gh-aw/reference/glossar
 
 GitHub Agentic Workflows includes built-in GitHub MCP integration with comprehensive repository access. See [GitHub Tools](/gh-aw/reference/github-tools/) for details. This guide focuses on using custom MCP servers to connect to external services and databases.
 
+> [!IMPORTANT]
+>
+> The design philosophy of GitHub Agentic Workflows is to provide a secure, standardized way for AI agents to interact with external systems. For custom MCP servers, the design intention is that they only be used for **read-only** access to external tools, databases, and APIs. This allows AI agents to retrieve information, perform analysis, and generate insights based on external data while maintaining a strong security posture.
+>
+> Write operations should be performed through [afe outputs](/gh-aw/reference/safe-outputs/), including [Custom Safe Outputs](/gh-aw/reference/custom-safe-outputs/) for scenarios not covered by default safe outputs.
+>
+> It is your responsibility to ensure that any custom MCP servers you integrate are designed and configured in a way that prevents unauthorized write operations. This includes implementing appropriate authentication, authorization, and input validation mechanisms on your MCP server to enforce read-only access and protect against potential abuse.
+
 ## Manually Configuring a Custom MCP Server
 
 Add MCP servers to your workflow's frontmatter using the `mcp-servers:` section:
