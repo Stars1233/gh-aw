@@ -22,6 +22,7 @@ const { sanitizeContent } = require("./sanitize_content.cjs");
 const { createManifestLogger, ensureManifestExists, extractCreatedItemFromResult } = require("./safe_output_manifest.cjs");
 const { loadCustomSafeOutputJobTypes, loadCustomSafeOutputScriptHandlers, loadCustomSafeOutputActionHandlers } = require("./safe_output_helpers.cjs");
 const { emitSafeOutputActionOutputs } = require("./safe_outputs_action_outputs.cjs");
+const nodePath = require("path");
 
 /**
  * Handler map configuration
@@ -167,8 +168,23 @@ async function loadHandlers(config, prReviewBuffer) {
   const customScriptHandlers = loadCustomSafeOutputScriptHandlers();
   if (customScriptHandlers.size > 0) {
     core.info(`Loading ${customScriptHandlers.size} custom script handler(s): ${[...customScriptHandlers.keys()].join(", ")}`);
+    const scriptBaseDir = nodePath.join(process.env.RUNNER_TEMP || "/tmp", "gh-aw", "actions");
     for (const [scriptType, scriptFilename] of customScriptHandlers) {
-      const scriptPath = require("path").join(process.env.RUNNER_TEMP || "/tmp", "gh-aw", "actions", scriptFilename);
+      // Sanitize scriptFilename to prevent path traversal attacks: only the basename
+      // (no directory separators or ".." sequences) is allowed.
+      const safeFilename = nodePath.basename(scriptFilename);
+      if (safeFilename !== scriptFilename) {
+        core.error(`Invalid script filename for ${scriptType}: path traversal detected in "${scriptFilename}" — skipping`);
+        continue;
+      }
+      const scriptPath = nodePath.join(scriptBaseDir, safeFilename);
+      // Defense-in-depth: verify the resolved path remains within the expected directory.
+      // Use path.relative() to check containment robustly across all platforms.
+      const relativeToBase = nodePath.relative(scriptBaseDir, scriptPath);
+      if (relativeToBase.startsWith("..") || nodePath.isAbsolute(relativeToBase)) {
+        core.error(`Script path outside expected directory for ${scriptType}: "${scriptPath}" — skipping`);
+        continue;
+      }
       try {
         const scriptModule = require(scriptPath);
         if (scriptModule && typeof scriptModule.main === "function") {
