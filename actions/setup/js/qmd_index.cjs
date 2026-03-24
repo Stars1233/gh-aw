@@ -8,7 +8,7 @@ const { pathToFileURL } = require("url");
 const { ERR_CONFIG, ERR_VALIDATION } = require("./error_codes.cjs");
 
 /**
- * @typedef {{ name: string, path: string, patterns?: string[], context?: string }} QmdCheckout
+ * @typedef {{ name: string, path: string, pattern?: string, ignore?: string[], context?: string }} QmdCheckout
  * @typedef {{ name?: string, type?: string, query?: string, repo?: string, min?: number, max?: number, tokenEnvVar?: string }} QmdSearch
  * @typedef {{ dbPath: string, checkouts?: QmdCheckout[], searches?: QmdSearch[] }} QmdConfig
  */
@@ -48,12 +48,13 @@ async function writeSummary(config, updateResult, embedResult) {
     const checkouts = config.checkouts ?? [];
     if (checkouts.length > 0) {
       md += "### Collections\n\n";
-      md += "| Name | Patterns | Context |\n";
-      md += "| --- | --- | --- |\n";
+      md += "| Name | Pattern | Ignore | Context |\n";
+      md += "| --- | --- | --- | --- |\n";
       for (const col of checkouts) {
-        const patterns = (col.patterns || ["**/*.md"]).join(", ");
+        const pattern = col.pattern || "**/*.md";
+        const ignore = col.ignore && col.ignore.length > 0 ? col.ignore.join(", ") : "-";
         const ctx = col.context || "-";
-        md += `| ${col.name} | ${patterns} | ${ctx} |\n`;
+        md += `| ${col.name} | ${pattern} | ${ignore} | ${ctx} |\n`;
       }
       md += "\n";
     }
@@ -132,16 +133,16 @@ async function main() {
   const dbPath = path.join(config.dbPath, "index.sqlite");
 
   // ── Build collections config from checkout entries ──────────────────────
-  /** @type {Record<string, { path: string, pattern?: string, context?: Record<string, string> }>} */
+  /** @type {Record<string, { path: string, pattern?: string, ignore?: string[], context?: Record<string, string> }>} */
   const collections = {};
 
   for (const checkout of config.checkouts || []) {
     const rawPath = checkout.path;
     const resolvedPath = resolveEnvVars(rawPath);
-    const patterns = checkout.patterns || ["**/*.md"];
-    const pattern = patterns.join(",");
+    const pattern = checkout.pattern || "**/*.md";
+    const ignoreInfo = checkout.ignore && checkout.ignore.length > 0 ? ` ignore=[${checkout.ignore.join(", ")}]` : "";
 
-    core.info(`Collection "${checkout.name}": path="${rawPath}" -> "${resolvedPath}" pattern="${pattern}"`);
+    core.info(`Collection "${checkout.name}": path="${rawPath}" -> "${resolvedPath}" pattern="${pattern}"${ignoreInfo}`);
 
     const pathExists = fs.existsSync(resolvedPath);
     if (!pathExists) {
@@ -153,6 +154,7 @@ async function main() {
     collections[checkout.name] = {
       path: resolvedPath,
       pattern,
+      ...(checkout.ignore && checkout.ignore.length > 0 ? { ignore: checkout.ignore } : {}),
       ...(checkout.context ? { context: { "/": checkout.context } } : {}),
     };
   }
@@ -274,8 +276,7 @@ async function main() {
       core.warning(
         "No files were indexed. Possible causes:\n" +
           "  - The checkout path does not exist or was not checked out\n" +
-          "  - The glob patterns do not match any files (check for dotfile exclusions in patterns starting with '.')\n" +
-          "  - The pattern uses a comma-separated list that the qmd SDK does not support\n" +
+          "  - The glob pattern does not match any files (check for dotfile exclusions in patterns starting with '.')\n" +
           "  - The checkout path resolves to an empty string (check ${ENV_VAR} placeholders in 'path')\n" +
           "Review the collection log lines above for the resolved path and pattern."
       );
