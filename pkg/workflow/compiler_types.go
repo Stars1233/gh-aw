@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"os"
 
 	actionpins "github.com/github/gh-aw/pkg/actionpins"
@@ -48,6 +49,12 @@ func WithVersion(version string) CompilerOption {
 	return func(c *Compiler) { c.version = version }
 }
 
+// WithContext sets the context used for network operations such as SHA resolution.
+// Defaults to context.Background() if not specified.
+func WithContext(ctx context.Context) CompilerOption {
+	return func(c *Compiler) { c.ctx = ctx }
+}
+
 // FileCreationTracker interface for tracking files created during compilation
 type FileCreationTracker interface {
 	TrackCreated(filePath string)
@@ -55,6 +62,7 @@ type FileCreationTracker interface {
 
 // Compiler handles converting markdown workflows to GitHub Actions YAML
 type Compiler struct {
+	ctx                     context.Context          // Context for network operations (e.g. SHA resolution); defaults to context.Background()
 	verbose                 bool
 	quiet                   bool // If true, suppress success messages (for interactive mode)
 	engineOverride          string
@@ -119,6 +127,7 @@ func NewCompiler(opts ...CompilerOption) *Compiler {
 
 	// Create compiler with defaults
 	c := &Compiler{
+		ctx:               context.Background(),        // Default context; override with WithContext
 		verbose:           false,
 		engineOverride:    "",
 		version:           version,
@@ -149,6 +158,11 @@ func NewCompiler(opts ...CompilerOption) *Compiler {
 // SetSkipValidation configures whether to skip schema validation
 func (c *Compiler) SetSkipValidation(skip bool) {
 	c.skipValidation = skip
+}
+
+// SetContext sets the context used for network operations such as SHA resolution.
+func (c *Compiler) SetContext(ctx context.Context) {
+	c.ctx = ctx
 }
 
 // SetRequireDocker configures whether Docker must be available for container image validation.
@@ -534,6 +548,7 @@ type WorkflowData struct {
 	ToolsTimeout                   string                          // timeout for tool/MCP operations: numeric string (seconds) or GitHub Actions expression (empty = use engine default)
 	ToolsStartupTimeout            string                          // timeout for MCP server startup: numeric string (seconds) or GitHub Actions expression (empty = use engine default)
 	Features                       map[string]any                  // feature flags and configuration options from frontmatter (supports bool and string values)
+	Ctx                            context.Context                 // context propagated from the caller for network operations (e.g. SHA resolution)
 	ActionCache                    *ActionCache                    // cache for action pin resolutions
 	ActionResolver                 *ActionResolver                 // resolver for action pins
 	DockerImages                   []string                        // container images collected at compile time (pinned refs when pins are cached)
@@ -587,7 +602,8 @@ func (d *WorkflowData) PinContext() *actionpins.PinContext {
 	if d.ActionPinWarnings == nil {
 		d.ActionPinWarnings = make(map[string]bool)
 	}
-	ctx := &actionpins.PinContext{
+	pinCtx := &actionpins.PinContext{
+		Ctx:             d.Ctx,
 		StrictMode:      d.StrictMode,
 		EnforcePinned:   true,
 		AllowActionRefs: d.AllowActionRefs,
@@ -603,9 +619,9 @@ func (d *WorkflowData) PinContext() *actionpins.PinContext {
 	// Only set Resolver if non-nil to avoid passing a typed nil interface value
 	// (which would be non-nil in actionpins but crash on method call).
 	if d.ActionResolver != nil {
-		ctx.Resolver = d.ActionResolver
+		pinCtx.Resolver = d.ActionResolver
 	}
-	return ctx
+	return pinCtx
 }
 
 // BaseSafeOutputConfig holds common configuration fields for all safe output types

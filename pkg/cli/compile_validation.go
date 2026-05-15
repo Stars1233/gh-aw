@@ -18,8 +18,10 @@ import (
 var compileValidationLog = logger.New("cli:compile_validation")
 
 // CompileWorkflowWithValidation compiles a workflow with always-on YAML validation for CLI usage
-func CompileWorkflowWithValidation(compiler *workflow.Compiler, filePath string, verbose bool, runZizmorPerFile bool, runPoutinePerFile bool, runActionlintPerFile bool, strict bool, validateActionSHAs bool) error {
+func CompileWorkflowWithValidation(ctx context.Context, compiler *workflow.Compiler, filePath string, verbose bool, runZizmorPerFile bool, runPoutinePerFile bool, runActionlintPerFile bool, strict bool, validateActionSHAs bool) error {
 	compileValidationLog.Printf("Compiling workflow with validation: file=%s, strict=%v, validateSHAs=%v", filePath, strict, validateActionSHAs)
+
+	compiler.SetContext(ctx)
 
 	// Set workflow identifier for schedule scattering (use repository-relative path for stability)
 	relPath, err := getRepositoryRelativePath(filePath)
@@ -74,7 +76,7 @@ func CompileWorkflowWithValidation(compiler *workflow.Compiler, filePath string,
 		compileValidationLog.Print("Validating action SHAs in lock file")
 		// Use the compiler's shared action cache to benefit from cached resolutions
 		actionCache := compiler.GetSharedActionCache()
-		if err := workflow.ValidateActionSHAsInLockFile(lockFile, actionCache, verbose); err != nil {
+		if err := workflow.ValidateActionSHAsInLockFile(ctx, lockFile, actionCache, verbose); err != nil {
 			// Action SHA validation warnings are non-fatal
 			compileValidationLog.Printf("Action SHA validation completed with warnings: %v", err)
 		}
@@ -97,7 +99,7 @@ func CompileWorkflowWithValidation(compiler *workflow.Compiler, filePath string,
 	// Run actionlint on the generated lock file if requested
 	// Note: For batch processing, use RunActionlintOnFiles instead
 	if runActionlintPerFile {
-		if err := runActionlintOnFiles(context.Background(), []string{lockFile}, verbose, strict); err != nil {
+		if err := runActionlintOnFiles(ctx, []string{lockFile}, verbose, strict); err != nil {
 			return fmt.Errorf("actionlint linter failed: %w", err)
 		}
 	}
@@ -107,8 +109,10 @@ func CompileWorkflowWithValidation(compiler *workflow.Compiler, filePath string,
 
 // CompileWorkflowDataWithValidation compiles from already-parsed WorkflowData with validation
 // This avoids re-parsing when the workflow data has already been parsed
-func CompileWorkflowDataWithValidation(compiler *workflow.Compiler, workflowData *workflow.WorkflowData, filePath string, verbose bool, runZizmorPerFile bool, runPoutinePerFile bool, runActionlintPerFile bool, strict bool, validateActionSHAs bool) error {
+func CompileWorkflowDataWithValidation(ctx context.Context, compiler *workflow.Compiler, workflowData *workflow.WorkflowData, filePath string, verbose bool, runZizmorPerFile bool, runPoutinePerFile bool, runActionlintPerFile bool, strict bool, validateActionSHAs bool) error {
 	compileValidationLog.Printf("Compiling from parsed WorkflowData: file=%s", filePath)
+
+	compiler.SetContext(ctx)
 
 	// Compile the workflow using already-parsed data
 	if err := compiler.CompileWorkflowData(workflowData, filePath); err != nil {
@@ -142,7 +146,7 @@ func CompileWorkflowDataWithValidation(compiler *workflow.Compiler, workflowData
 		compileValidationLog.Print("Validating action SHAs in lock file")
 		// Use the compiler's shared action cache to benefit from cached resolutions
 		actionCache := compiler.GetSharedActionCache()
-		if err := workflow.ValidateActionSHAsInLockFile(lockFile, actionCache, verbose); err != nil {
+		if err := workflow.ValidateActionSHAsInLockFile(ctx, lockFile, actionCache, verbose); err != nil {
 			// Action SHA validation warnings are non-fatal
 			compileValidationLog.Printf("Action SHA validation completed with warnings: %v", err)
 		}
@@ -165,7 +169,7 @@ func CompileWorkflowDataWithValidation(compiler *workflow.Compiler, workflowData
 	// Run actionlint on the generated lock file if requested
 	// Note: For batch processing, use RunActionlintOnFiles instead
 	if runActionlintPerFile {
-		if err := runActionlintOnFiles(context.Background(), []string{lockFile}, verbose, strict); err != nil {
+		if err := runActionlintOnFiles(ctx, []string{lockFile}, verbose, strict); err != nil {
 			return fmt.Errorf("actionlint linter failed: %w", err)
 		}
 	}
