@@ -389,6 +389,35 @@ func TestValidatePermissions_UsesCachedPermissionScopeValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), cachedErr.Error())
 }
 
+func TestValidateToolConfiguration_EmitsSandboxWarningBeforeThreatDetectionError(t *testing.T) {
+	tmpDir := testutil.TempDir(t, "tool-warning-test")
+	markdownPath := filepath.Join(tmpDir, "test.md")
+
+	compiler := NewCompiler()
+	compiler.SetStrictMode(false)
+
+	workflowData := &WorkflowData{
+		Name: "Test",
+		SandboxConfig: &SandboxConfig{
+			Agent: &AgentSandboxConfig{Disabled: true},
+		},
+		SafeOutputs: &SafeOutputsConfig{
+			ThreatDetection: &ThreatDetectionConfig{},
+		},
+	}
+
+	initialWarnings := compiler.GetWarningCount()
+	var validateErr error
+	stderr := testutil.CaptureStderr(t, func() {
+		validateErr = compiler.validateToolConfiguration(workflowData, markdownPath, &Permissions{})
+	})
+
+	require.Error(t, validateErr)
+	assert.Contains(t, validateErr.Error(), "threat detection requires sandbox.agent")
+	assert.Contains(t, stderr, "Agent sandbox disabled (sandbox.agent: false)")
+	assert.Equal(t, initialWarnings+1, compiler.GetWarningCount())
+}
+
 // TestWarnPromptTmpPaths tests the /tmp path heuristic used by the compiler.
 func TestWarnPromptTmpPaths(t *testing.T) {
 	tests := []struct {
