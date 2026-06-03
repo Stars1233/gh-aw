@@ -214,6 +214,14 @@ func ResolveWorkflows(ctx context.Context, workflows []string, verbose bool) (*R
 		// Extract engine from content (if specified in frontmatter)
 		engine := ExtractWorkflowEngine(string(fetched.Content))
 
+		if spec.FromRepositoryManifest {
+			privateValue, hasPrivate := ExtractWorkflowPrivateSetting(string(fetched.Content))
+			if hasPrivate && privateValue {
+				manifestPath := joinRepositoryPackagePath(spec.PackagePath, repositoryPackageManifestFileName)
+				return nil, fmt.Errorf("invalid Agentic Workflow manifest %q: workflow %q sets private: true and cannot be included because private workflows cannot be added", manifestPath, resolvedSpec.WorkflowPath)
+			}
+		}
+
 		// Check if workflow is private - private workflows cannot be added to other repositories
 		isPrivate := ExtractWorkflowPrivate(string(fetched.Content))
 		if isPrivate {
@@ -257,7 +265,11 @@ func ResolveWorkflows(ctx context.Context, workflows []string, verbose bool) (*R
 }
 
 func appendRepositoryPackageWorkflowSpecs(parsedSpecs []*WorkflowSpec, repoSpec *RepoSpec, pkg *resolvedRepositoryPackage) []*WorkflowSpec {
+	if pkg == nil {
+		return parsedSpecs
+	}
 	host := explicitHostForRepo(repoSpec.RepoSlug)
+	effectiveVersion := repositoryPackageEffectiveRef(repoSpec, pkg)
 	for _, installationSource := range pkg.InstallationSource {
 		// installationSource is guaranteed by isSupportedPackageInstallablePath to be
 		// either a .md agentic workflow or a .yml action workflow file; no other
@@ -268,7 +280,7 @@ func appendRepositoryPackageWorkflowSpecs(parsedSpecs []*WorkflowSpec, repoSpec 
 		parsedSpecs = append(parsedSpecs, &WorkflowSpec{
 			RepoSpec: RepoSpec{
 				RepoSlug:    repoSpec.RepoSlug,
-				Version:     repoSpec.Version,
+				Version:     effectiveVersion,
 				PackagePath: repoSpec.PackagePath,
 			},
 			WorkflowPath:           installationSource,
@@ -287,7 +299,7 @@ func appendRepositoryPackageWorkflowSpecs(parsedSpecs []*WorkflowSpec, repoSpec 
 		parsedSpecs = append(parsedSpecs, &WorkflowSpec{
 			RepoSpec: RepoSpec{
 				RepoSlug:    repoSpec.RepoSlug,
-				Version:     repoSpec.Version,
+				Version:     effectiveVersion,
 				PackagePath: repoSpec.PackagePath,
 			},
 			WorkflowPath:       skillFile.SourcePath,
@@ -306,7 +318,7 @@ func appendRepositoryPackageWorkflowSpecs(parsedSpecs []*WorkflowSpec, repoSpec 
 		parsedSpecs = append(parsedSpecs, &WorkflowSpec{
 			RepoSpec: RepoSpec{
 				RepoSlug:    repoSpec.RepoSlug,
-				Version:     repoSpec.Version,
+				Version:     effectiveVersion,
 				PackagePath: repoSpec.PackagePath,
 			},
 			WorkflowPath:       agentFile,

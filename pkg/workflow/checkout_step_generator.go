@@ -51,32 +51,6 @@ func (cm *CheckoutManager) GenerateCheckoutAppTokenSteps(c *Compiler, permission
 	return steps
 }
 
-// GenerateCheckoutAppTokenInvalidationSteps generates token invalidation steps
-// for all checkout entries that use app authentication.
-// The tokens were minted in the agent job and are referenced via
-// steps.checkout-app-token-{index}.outputs.token.
-func (cm *CheckoutManager) GenerateCheckoutAppTokenInvalidationSteps(c *Compiler) []string {
-	checkoutManagerLog.Printf("Building app token invalidation steps for %d checkout entries", len(cm.ordered))
-	var steps []string
-	for i, entry := range cm.ordered {
-		if entry.githubApp == nil {
-			continue
-		}
-		checkoutManagerLog.Printf("Generating app token invalidation step for checkout index=%d", i)
-		rawSteps := c.buildGitHubAppTokenInvalidationStep()
-		stepID := fmt.Sprintf("checkout-app-token-%d", i)
-		for _, step := range rawSteps {
-			// Replace all references to safe-outputs-app-token with the checkout-specific step ID.
-			// This covers both the `if:` condition and the `env:` token reference in one pass.
-			modified := strings.ReplaceAll(step, "steps.safe-outputs-app-token.outputs.token", "steps."+stepID+".outputs.token")
-			// Update step name to indicate it's for checkout
-			modified = strings.ReplaceAll(modified, "Invalidate GitHub App token", fmt.Sprintf("Invalidate checkout app token (%d)", i))
-			steps = append(steps, modified)
-		}
-	}
-	return steps
-}
-
 // GenerateAdditionalCheckoutSteps generates YAML step lines for all non-default
 // (additional) checkouts — those that target a specific path other than the root.
 // The caller is responsible for emitting the default workspace checkout separately.
@@ -195,9 +169,13 @@ func (cm *CheckoutManager) GenerateDefaultCheckoutStep(
 		}
 		// Prevent actions/checkout from adding --filter=blob:none when sparse-checkout
 		// is specified. Blobless clones require credentials for lazy blob fetches, but
-		// agent jobs intentionally do not retain git credentials after checkout, making offline git operations fail.
+		// agent jobs intentionally do not retain git credentials after checkout, making
+		// offline git operations fail. Using blob:limit=1073741824 (1 GiB) effectively
+		// fetches all blobs up front on GitHub-hosted repos (GitHub rejects blobs > 100 MiB),
+		// while keeping the filter non-empty so actions/checkout won't substitute blob:none.
+		// The subsequent repair step then clears partial-clone markers entirely.
 		if len(override.sparsePatterns) > 0 {
-			sb.WriteString("          filter: ''\n")
+			sb.WriteString("          filter: 'blob:limit=1073741824'\n")
 		}
 		// Determine effective token: github-app-minted token takes precedence
 		effectiveOverrideToken := override.token
@@ -235,6 +213,9 @@ func (cm *CheckoutManager) GenerateDefaultCheckoutStep(
 	}
 
 	steps := []string{sb.String()}
+	if override != nil && len(override.sparsePatterns) > 0 {
+		steps = append(steps, generateSparseCheckoutPartialCloneResetStep(""))
+	}
 	if cleanCreds {
 		steps = append(steps, generateCheckoutCredentialsCleanupStep())
 	}
@@ -309,8 +290,12 @@ func generateCheckoutStepLines(entry *resolvedCheckout, index int, getActionPin 
 		}
 		// Prevent actions/checkout from adding --filter=blob:none when sparse-checkout
 		// is specified. Blobless clones require credentials for lazy blob fetches, but
-		// agent jobs intentionally do not retain git credentials after checkout, making offline git operations fail.
-		sb.WriteString("          filter: ''\n")
+		// agent jobs intentionally do not retain git credentials after checkout, making
+		// offline git operations fail. Using blob:limit=1073741824 (1 GiB) effectively
+		// fetches all blobs up front on GitHub-hosted repos (GitHub rejects blobs > 100 MiB),
+		// while keeping the filter non-empty so actions/checkout won't substitute blob:none. The subsequent repair step then
+		// clears partial-clone markers entirely.
+		sb.WriteString("          filter: 'blob:limit=1073741824'\n")
 	}
 	if entry.submodules != "" {
 		fmt.Fprintf(&sb, "          submodules: %s\n", entry.submodules)
@@ -320,6 +305,9 @@ func generateCheckoutStepLines(entry *resolvedCheckout, index int, getActionPin 
 	}
 
 	steps := []string{sb.String()}
+	if len(entry.sparsePatterns) > 0 {
+		steps = append(steps, generateSparseCheckoutPartialCloneResetStep(entry.key.path))
+	}
 	if entry.cleanCreds {
 		steps = append(steps, generateCheckoutCredentialsCleanupStep())
 	}
@@ -334,6 +322,19 @@ func generateCheckoutCredentialsCleanupStep() string {
         continue-on-error: true
         run: bash "${RUNNER_TEMP}/gh-aw/actions/clean_git_credentials_checkout.sh"
 `
+}
+
+func generateSparseCheckoutPartialCloneResetStep(path string) string {
+	gitPrefix := "git"
+	if path != "" {
+		gitPrefix = fmt.Sprintf(`git -C "${{ github.workspace }}/%s"`, path)
+	}
+	return fmt.Sprintf(`      - name: Clear partial clone markers after sparse checkout
+        continue-on-error: true
+        run: |
+          %s config --local --unset-all remote.origin.promisor || true
+          %s config --local --unset-all remote.origin.partialclonefilter || true
+`, gitPrefix, gitPrefix)
 }
 
 // checkoutStepName returns a human-readable description for a checkout step.

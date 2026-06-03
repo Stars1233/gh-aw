@@ -14,6 +14,7 @@ const {
   buildMissingToolPermissionIssuePayload,
   buildMissingToolAlternatives,
   buildInfrastructureIncompletePayload,
+  buildCopilotProxyAuthFailureDiagnostic,
   buildPromptFileFallbackInstruction,
   countPermissionDeniedIssues,
   detectCopilotErrors,
@@ -28,14 +29,17 @@ const {
   isAuthenticationFailedError,
   isModelAvailableInReflectData,
   isModelAvailableInReflectFile,
+  resolveCopilotSDKCustomProviderFromReflect,
   enrichReflectModels,
   extractModelIds,
   fetchAWFReflect,
   fetchModelsFromUrl,
+  generateCopilotConnectionToken,
   GEMINI_MODEL_NAME_PREFIX,
   PROMPT_FILE_INLINE_THRESHOLD_BYTES,
   resolvePromptFileArgs,
   writeCopilotOutputs,
+  parseCopilotSDKServerArgsFromEnv,
 } = require("./copilot_harness.cjs");
 
 describe("copilot_harness.cjs", () => {
@@ -69,6 +73,21 @@ describe("copilot_harness.cjs", () => {
       expect(CAPI_ERROR_400_PATTERN.test("Error: ENOENT: no such file")).toBe(false);
       expect(CAPI_ERROR_400_PATTERN.test("Fatal: out of memory")).toBe(false);
       expect(CAPI_ERROR_400_PATTERN.test("")).toBe(false);
+    });
+  });
+
+  describe("generateCopilotConnectionToken", () => {
+    it("generates a 32-byte hex token", () => {
+      const token = generateCopilotConnectionToken();
+      expect(token).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it("uses a pluggable random byte source", () => {
+      const randomBytes = vi.fn(() => Buffer.alloc(32, 0xab));
+      const token = generateCopilotConnectionToken({ randomBytes });
+      expect(token).toMatch(/^[a-f0-9]{64}$/);
+      expect(token).toBe("ab".repeat(32));
+      expect(randomBytes).toHaveBeenCalledWith(32);
     });
   });
 
@@ -197,6 +216,29 @@ describe("copilot_harness.cjs", () => {
       ).toBe("3002");
     });
 
+    describe("parseCopilotSDKServerArgsFromEnv", () => {
+      it("returns parsed server args and logs count", () => {
+        const logger = vi.fn();
+        const result = parseCopilotSDKServerArgsFromEnv('["--headless","--port","3002"]', { logger });
+        expect(result).toEqual(["--headless", "--port", "3002"]);
+        expect(logger).toHaveBeenCalledWith("copilot-sdk driver mode: parsed 3 sidecar args from GH_AW_COPILOT_SDK_SERVER_ARGS");
+      });
+
+      it("falls back to empty args when value is not a string array", () => {
+        const logger = vi.fn();
+        const result = parseCopilotSDKServerArgsFromEnv('{"port":3002}', { logger });
+        expect(result).toEqual([]);
+        expect(logger).toHaveBeenCalledWith("copilot-sdk driver mode: GH_AW_COPILOT_SDK_SERVER_ARGS must be a JSON string array; using sidecar default args");
+      });
+
+      it("falls back to empty args when json is invalid", () => {
+        const logger = vi.fn();
+        const result = parseCopilotSDKServerArgsFromEnv("not-json", { logger });
+        expect(result).toEqual([]);
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining("failed to parse GH_AW_COPILOT_SDK_SERVER_ARGS"));
+      });
+    });
+
     it("builds headless Copilot CLI sidecar args", () => {
       expect(
         buildCopilotSDKServerArgs({
@@ -280,6 +322,80 @@ describe("copilot_harness.cjs", () => {
       });
       expect(child.listenerCount("error")).toBe(0);
       expect(child.listenerCount("exit")).toBe(0);
+    });
+
+    it("forwards extraArgs to the headless server when provided", async () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 5678;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = vi.fn();
+      const spawnImpl = vi.fn(() => child);
+      const waitForReady = vi.fn().mockResolvedValue(undefined);
+
+      await startCopilotSDKServer({
+        command: "copilot",
+        env: { COPILOT_SDK_URI: "http://127.0.0.1:3002" },
+        extraArgs: ["--add-dir", "/tmp/gh-aw/", "--log-level", "all", "--disable-builtin-mcps"],
+        logger: () => {},
+        spawnImpl,
+        waitForReady,
+      });
+
+      expect(spawnImpl).toHaveBeenCalledWith(
+        "copilot",
+        ["--headless", "--no-auto-update", "--port", "3002", "--add-dir", "/tmp/gh-aw/", "--log-level", "all", "--disable-builtin-mcps"],
+        expect.objectContaining({ stdio: ["ignore", "pipe", "pipe"] })
+      );
+    });
+
+    it("uses engine-generated serverArgs directly when provided", async () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 5680;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = vi.fn();
+      const spawnImpl = vi.fn(() => child);
+      const waitForReady = vi.fn().mockResolvedValue(undefined);
+
+      const engineGeneratedArgs = ["--headless", "--no-auto-update", "--port", "3002", "--add-dir", "/tmp/gh-aw/", "--log-level", "all", "--disable-builtin-mcps", "--no-ask-user"];
+      await startCopilotSDKServer({
+        command: "copilot",
+        env: { COPILOT_SDK_URI: "http://127.0.0.1:3002" },
+        serverArgs: engineGeneratedArgs,
+        logger: () => {},
+        spawnImpl,
+        waitForReady,
+      });
+
+      expect(spawnImpl).toHaveBeenCalledWith("copilot", engineGeneratedArgs, expect.objectContaining({ stdio: ["ignore", "pipe", "pipe"] }));
+    });
+
+    it("uses only base headless args when extraArgs is empty or omitted", async () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.pid = 5679;
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = vi.fn();
+      const spawnImpl = vi.fn(() => child);
+      const waitForReady = vi.fn().mockResolvedValue(undefined);
+
+      await startCopilotSDKServer({
+        command: "copilot",
+        env: { COPILOT_SDK_URI: "http://127.0.0.1:3002" },
+        extraArgs: [],
+        logger: () => {},
+        spawnImpl,
+        waitForReady,
+      });
+
+      expect(spawnImpl).toHaveBeenCalledWith("copilot", ["--headless", "--no-auto-update", "--port", "3002"], expect.objectContaining({ stdio: ["ignore", "pipe", "pipe"] }));
     });
 
     it("stops the headless Copilot CLI sidecar with SIGTERM", async () => {
@@ -700,6 +816,46 @@ describe("copilot_harness.cjs", () => {
     });
   });
 
+  describe("gh-aw API proxy auth diagnostics", () => {
+    it("rewrites local proxy 401 errors to COPILOT_GITHUB_TOKEN guidance", () => {
+      const diagnostic = buildCopilotProxyAuthFailureDiagnostic("Authentication failed with provider at http://172.30.0.30:10002 (HTTP 401).\nCheck your COPILOT_PROVIDER_API_KEY or COPILOT_PROVIDER_BEARER_TOKEN.", {
+        COPILOT_MODEL: "claude-sonnet-4.5",
+      });
+
+      expect(diagnostic).toContain("gh-aw API proxy");
+      expect(diagnostic).toContain("HTTP 401");
+      expect(diagnostic).toContain("model=claude-sonnet-4.5");
+      expect(diagnostic).toContain("stage=starting the Copilot CLI request");
+      expect(diagnostic).toContain("COPILOT_GITHUB_TOKEN");
+      expect(diagnostic).toContain("GH_AW_MODEL_AGENT_COPILOT");
+      expect(diagnostic).not.toContain("COPILOT_PROVIDER_API_KEY");
+    });
+
+    it("reports token-validation stage when present in the output", () => {
+      const diagnostic = buildCopilotProxyAuthFailureDiagnostic("Validating token with provider.\nAuthentication failed with provider at http://localhost:10002 (HTTP 401).", { COPILOT_MODEL: "gpt-4.1" });
+
+      expect(diagnostic).toContain("stage=validating the token");
+    });
+
+    it("reports model-listing stage when present in the output", () => {
+      const diagnostic = buildCopilotProxyAuthFailureDiagnostic("Listing models from /models endpoint.\nAuthentication failed with provider at http://api-proxy:10002 (HTTP 401).", { COPILOT_MODEL: "o4-mini" });
+
+      expect(diagnostic).toContain("stage=listing models");
+    });
+
+    it("ignores non-proxy provider auth failures", () => {
+      const diagnostic = buildCopilotProxyAuthFailureDiagnostic("Authentication failed with provider at https://api.openai.com/v1 (HTTP 401).", { COPILOT_MODEL: "gpt-4.1" });
+
+      expect(diagnostic).toBe("");
+    });
+
+    it("ignores local BYOK provider auth failures on non-proxy ports", () => {
+      const diagnostic = buildCopilotProxyAuthFailureDiagnostic("Authentication failed with provider at http://host.docker.internal:11434/v1 (HTTP 401).", { COPILOT_MODEL: "qwen2.5:0.5b" });
+
+      expect(diagnostic).toBe("");
+    });
+  });
+
   describe("auth error prevents retry", () => {
     // Inline the same retry logic as the driver, including auth error check
     const MCP_POLICY_BLOCKED_PATTERN = /MCP servers were blocked by policy:/;
@@ -1050,11 +1206,10 @@ describe("copilot_harness.cjs", () => {
   });
 
   describe("log format", () => {
-    it("log lines include [copilot-harness] prefix and ISO timestamp", () => {
+    it("log lines include [copilot-harness] prefix without rendered timestamp", () => {
       // Verify the format matches what we expect in agent-stdio.log
-      const ts = new Date().toISOString();
-      const logLine = `[copilot-harness] ${ts} test message`;
-      expect(logLine).toMatch(/^\[copilot-harness\] \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      const logLine = "[copilot-harness] test message";
+      expect(logLine).toBe("[copilot-harness] test message");
     });
   });
 
@@ -1167,6 +1322,25 @@ describe("copilot_harness.cjs", () => {
         fs.unlinkSync(reflectFile);
       }
     });
+
+    it("derives SDK custom provider and model from reflect data", () => {
+      const reflectFile = path.join(os.tmpdir(), `awf-reflect-provider-${Date.now()}.json`);
+      try {
+        fs.writeFileSync(
+          reflectFile,
+          JSON.stringify({
+            endpoints: [{ provider: "copilot", port: 10002, configured: true, models: ["gpt-5.4", "claude-sonnet-4.6"] }],
+          }),
+          "utf8"
+        );
+        expect(resolveCopilotSDKCustomProviderFromReflect({ reflectPath: reflectFile })).toEqual({
+          model: "gpt-5.4",
+          provider: { type: "openai", baseUrl: "http://api-proxy:10002" },
+        });
+      } finally {
+        fs.unlinkSync(reflectFile);
+      }
+    });
   });
 
   describe("enrichReflectModels", () => {
@@ -1225,6 +1399,103 @@ describe("copilot_harness.cjs", () => {
       await enrichReflectModels(reflectData, 500, msg => logs.push(msg));
       expect(reflectData.endpoints[0].models).toBeNull();
       expect(logs.some(l => l.includes("models fetch error"))).toBe(true);
+    });
+  });
+
+  describe("SDK mode retry policy", () => {
+    // In SDK mode, --continue is a CLI concept and must never be used.
+    // Retries always restart the session fresh.
+    // The retry eligibility rules (hasOutput, MAX_RETRIES) are otherwise shared.
+    const MAX_RETRIES = 3;
+
+    /**
+     * Mirrors the blended retry decision from copilot_harness.cjs (the
+     * `attempt < MAX_RETRIES && result.hasOutput` branch plus the
+     * `useContinueOnRetry = !copilotSDKMode && !continueDisabledPermanently` assignment).
+     * Keep this helper in sync with the production logic.
+     *
+     * @param {{hasOutput: boolean, exitCode: number, output: string}} result
+     * @param {number} attempt
+     * @param {boolean} copilotSDKMode
+     * @param {boolean} continueDisabledPermanently
+     * @returns {{ shouldRetry: boolean, useContinueOnRetry: boolean }}
+     */
+    function blendedRetryDecision(result, attempt, copilotSDKMode, continueDisabledPermanently = false) {
+      if (result.exitCode === 0) return { shouldRetry: false, useContinueOnRetry: false };
+      if (hasNumerousPermissionDeniedIssues(result.output)) return { shouldRetry: false, useContinueOnRetry: false };
+      if (isMaxEffectiveTokensExceededError(result.output)) return { shouldRetry: false, useContinueOnRetry: false };
+      if (attempt >= MAX_RETRIES || !result.hasOutput) return { shouldRetry: false, useContinueOnRetry: false };
+      // --continue is only enabled in CLI mode and only when not permanently disabled.
+      const useContinueOnRetry = !copilotSDKMode && !continueDisabledPermanently;
+      return { shouldRetry: true, useContinueOnRetry };
+    }
+
+    it("retries on partial execution in SDK mode (fresh run, not --continue)", () => {
+      const result = { exitCode: 1, hasOutput: true, output: "Error: connection reset" };
+      const { shouldRetry, useContinueOnRetry } = blendedRetryDecision(result, 0, true);
+      expect(shouldRetry).toBe(true);
+      expect(useContinueOnRetry).toBe(false);
+    });
+
+    it("retries on CAPIError 400 in SDK mode (fresh run, not --continue)", () => {
+      const result = { exitCode: 1, hasOutput: true, output: "CAPIError: 400 Bad Request" };
+      const { shouldRetry, useContinueOnRetry } = blendedRetryDecision(result, 0, true);
+      expect(shouldRetry).toBe(true);
+      expect(useContinueOnRetry).toBe(false);
+    });
+
+    it("never sets useContinueOnRetry=true in SDK mode regardless of error type", () => {
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const result = { exitCode: 1, hasOutput: true, output: "Error: partial execution" };
+        const { useContinueOnRetry } = blendedRetryDecision(result, attempt, /* copilotSDKMode */ true);
+        expect(useContinueOnRetry).toBe(false);
+      }
+    });
+
+    it("does not retry in SDK mode when no output was produced", () => {
+      const result = { exitCode: 1, hasOutput: false, output: "" };
+      const { shouldRetry } = blendedRetryDecision(result, 0, true);
+      expect(shouldRetry).toBe(false);
+    });
+
+    it("does not retry in SDK mode after retries are exhausted", () => {
+      const result = { exitCode: 1, hasOutput: true, output: "Error: partial execution" };
+      const { shouldRetry } = blendedRetryDecision(result, MAX_RETRIES, true);
+      expect(shouldRetry).toBe(false);
+    });
+
+    it("CLI mode still enables --continue on partial execution when not disabled", () => {
+      const result = { exitCode: 1, hasOutput: true, output: "Error: connection reset" };
+      const { shouldRetry, useContinueOnRetry } = blendedRetryDecision(result, 0, /* copilotSDKMode */ false);
+      expect(shouldRetry).toBe(true);
+      expect(useContinueOnRetry).toBe(true);
+    });
+
+    it("CLI mode respects continueDisabledPermanently", () => {
+      const result = { exitCode: 1, hasOutput: true, output: "Error: connection reset" };
+      const { shouldRetry, useContinueOnRetry } = blendedRetryDecision(result, 0, /* copilotSDKMode */ false, /* continueDisabledPermanently */ true);
+      expect(shouldRetry).toBe(true);
+      expect(useContinueOnRetry).toBe(false);
+    });
+
+    it("currentArgs never appends --continue in SDK mode", () => {
+      const resolvedArgs = ["--prompt", "hello"];
+      // Simulate the blended loop's currentArgs logic for multiple attempts in SDK mode
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const useContinueOnRetry = false; // always false in SDK mode
+        const copilotSDKMode = true;
+        const currentArgs = !copilotSDKMode && attempt > 0 && useContinueOnRetry ? [...resolvedArgs, "--continue"] : resolvedArgs;
+        expect(currentArgs).not.toContain("--continue");
+      }
+    });
+
+    it("currentArgs appends --continue in CLI mode when useContinueOnRetry=true", () => {
+      const resolvedArgs = ["--prompt", "hello"];
+      const copilotSDKMode = false;
+      const useContinueOnRetry = true;
+      // attempt > 0 is when --continue kicks in
+      const currentArgs = !copilotSDKMode && 1 > 0 && useContinueOnRetry ? [...resolvedArgs, "--continue"] : resolvedArgs;
+      expect(currentArgs).toContain("--continue");
     });
   });
 

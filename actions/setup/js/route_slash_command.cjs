@@ -2,9 +2,54 @@
 /// <reference types="@actions/github-script" />
 
 const { REACTION_MAP } = require("./add_reaction.cjs");
+const nodePath = require("node:path");
 // Keep this aligned with the current default stable GitHub REST API version used by workflows.
 // Update when GitHub advances the recommended version to avoid sunset/deprecation warnings.
 const GITHUB_API_VERSION = "2022-11-28";
+
+/**
+ * Appends centralized command routing details to the current step summary.
+ * @param {string[]} existingCommands
+ * @param {string} selectedCommand
+ * @returns {Promise<void>}
+ */
+async function appendRoutingSummary(existingCommands, selectedCommand) {
+  const summary = core.summary;
+  if (!summary || typeof summary.addHeading !== "function" || typeof summary.addRaw !== "function" || typeof summary.write !== "function") {
+    return;
+  }
+
+  const normalizedCommands = existingCommands
+    .filter(command => typeof command === "string" && command.trim())
+    .map(command => `/${command.trim()}`)
+    .sort();
+
+  const selectedCommandText = selectedCommand ? `\`/${selectedCommand}\`` : "`<none>`";
+  const existingCommandsList = normalizedCommands.map(command => `- \`${command}\``).join("\n");
+
+  try {
+    summary.addHeading("Agentic Commands Router", 3).addRaw(`- Selected command: ${selectedCommandText}`, true).addEOL().addRaw(`- Configured commands: ${normalizedCommands.length}`, true).addEOL();
+    if (existingCommandsList) {
+      summary.addEOL().addRaw(`<details><summary>Configured commands</summary>\n\n${existingCommandsList}\n\n</details>`, true).addEOL();
+    }
+    await summary.write({ overwrite: false });
+  } catch (error) {
+    core.warning(`Failed to write centralized routing details to step summary: ${String(error)}`);
+  }
+}
+
+/**
+ * Extracts the slash command name from the start of the given body text.
+ * Returns an empty string if the text does not begin with a valid slash command.
+ * A valid slash command starts with '/' followed by a name of one or more characters
+ * from [a-zA-Z0-9], [-], and [_].
+ * @param {string} text
+ * @returns {string}
+ */
+function parseSlashCommand(text) {
+  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9\-_]*)\b/.exec(String(text).trim());
+  return match ? match[1] : "";
+}
 
 function eventIdentifier() {
   if (context.eventName !== "issue_comment") {
@@ -197,7 +242,7 @@ async function addImmediateReaction(reaction) {
  * @param {string} workflowId
  * @param {string} ref
  * @param {Record<string, string>} inputs
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>}
  */
 async function dispatchWorkflow(workflowId, ref, inputs) {
   try {
@@ -211,9 +256,40 @@ async function dispatchWorkflow(workflowId, ref, inputs) {
         "X-GitHub-Api-Version": GITHUB_API_VERSION,
       },
     });
+    return true;
   } catch (error) {
+    if (isDisabledWorkflowDispatchError(error)) {
+      core.info(`Skipping workflow '${workflowId}' because it is disabled.`);
+      return false;
+    }
     throw new Error(`Failed to dispatch workflow '${workflowId}' on ref '${ref}': ${String(error)}`);
   }
+}
+
+function toWorkflowDispatchID(route) {
+  if (!route?.workflow || typeof route.workflow !== "string" || !route.workflow.trim()) {
+    return "";
+  }
+  // Routing config may provide either bare workflow name ("archie") or full lock filename ("archie.lock.yml").
+  const baseName = nodePath.posix.basename(route.workflow.trim());
+  if (!baseName) {
+    return "";
+  }
+  return baseName.endsWith(".lock.yml") ? baseName : `${baseName}.lock.yml`;
+}
+
+function isDisabledWorkflowDispatchError(error) {
+  const status = error?.status ?? error?.response?.status;
+  const message = [error?.message, error?.response?.data?.message]
+    .filter(value => typeof value === "string" && value.trim())
+    .join(" ")
+    .toLowerCase();
+
+  if (status !== 422 || !message) {
+    return false;
+  }
+
+  return message.includes("workflow is disabled") || message.includes("workflow was disabled") || message.includes("disabled workflow");
 }
 
 async function main() {
@@ -224,6 +300,9 @@ async function main() {
   const labelRouteMap = JSON.parse(process.env.GH_AW_LABEL_ROUTING || "{}");
   core.info(`Configured centralized slash commands: ${Object.keys(slashRouteMap).length}.`);
   core.info(`Configured decentralized label commands: ${Object.keys(labelRouteMap).length}.`);
+  const text = resolveBodyText();
+  const selectedCommand = parseSlashCommand(text);
+  await appendRoutingSummary(Object.keys(slashRouteMap), selectedCommand);
 
   const identifier = eventIdentifier();
   const { buildAwContext } = require("./aw_context.cjs");
@@ -253,32 +332,37 @@ async function main() {
       await addImmediateReaction(immediateReaction);
     }
     for (const route of routes) {
+      const workflowID = toWorkflowDispatchID(route);
+      if (!workflowID) {
+        core.warning("Skipping label route with missing workflow identifier.");
+        continue;
+      }
       const routeReaction = normalizeReaction(route?.ai_reaction);
       const awContext = {
         ...buildAwContext(),
         command_name: "",
         ...(routeReaction ? { desired_ai_reaction: routeReaction } : {}),
       };
-      core.info(`Dispatching workflow '${route.workflow}.lock.yml' for label '${labelName}'.`);
-      await dispatchWorkflow(`${route.workflow}.lock.yml`, ref, {
+      core.info(`Dispatching workflow '${workflowID}' for label '${labelName}'.`);
+      const dispatched = await dispatchWorkflow(workflowID, ref, {
         aw_context: JSON.stringify(awContext),
       });
-      core.info(`Dispatched '${route.workflow}' for label '${labelName}'`);
+      if (dispatched) {
+        core.info(`Dispatched '${workflowID}' for label '${labelName}'`);
+      }
     }
     core.info(`Completed decentralized label routing for '${labelName}'.`);
     return;
   }
 
-  const text = resolveBodyText();
   core.info(`Resolved payload text length: ${String(text).length}.`);
-  const firstWord = String(text).trim().split(/\s+/)[0] ?? "";
-  core.info(`First token in payload: '${firstWord || "<empty>"}'.`);
-  if (!firstWord.startsWith("/")) {
+  core.info(`First token in payload: '${selectedCommand ? `/${selectedCommand}` : "<empty>"}'.`);
+  if (!selectedCommand) {
     core.info("No slash command found at start of payload text; skipping dispatch.");
     return;
   }
 
-  const commandName = firstWord.slice(1);
+  const commandName = selectedCommand;
   core.info(`Resolved command '/${commandName}' for event identifier '${identifier}'.`);
   const configuredRoutes = slashRouteMap[commandName] ?? [];
   core.info(`Configured routes for '/${commandName}': ${configuredRoutes.length}.`);
@@ -296,19 +380,26 @@ async function main() {
 
   core.info(`Dispatch ref resolved to '${ref}'.`);
   for (const route of routes) {
+    const workflowID = toWorkflowDispatchID(route);
+    if (!workflowID) {
+      core.warning("Skipping slash route with missing workflow identifier.");
+      continue;
+    }
     const routeReaction = normalizeReaction(route?.ai_reaction);
     const awContext = {
       ...buildAwContext(),
       command_name: commandName,
       ...(routeReaction ? { desired_ai_reaction: routeReaction } : {}),
     };
-    core.info(`Dispatching workflow '${route.workflow}.lock.yml' for '/${commandName}'.`);
-    await dispatchWorkflow(`${route.workflow}.lock.yml`, ref, {
+    core.info(`Dispatching workflow '${workflowID}' for '/${commandName}'.`);
+    const dispatched = await dispatchWorkflow(workflowID, ref, {
       aw_context: JSON.stringify(awContext),
     });
-    core.info(`Dispatched '${route.workflow}' for '/${commandName}'`);
+    if (dispatched) {
+      core.info(`Dispatched '${workflowID}' for '/${commandName}'`);
+    }
   }
   core.info(`Completed centralized routing for '/${commandName}'.`);
 }
 
-module.exports = { main, eventIdentifier, resolveBodyText, resolveDispatchRef, GITHUB_API_VERSION };
+module.exports = { main, parseSlashCommand, eventIdentifier, resolveBodyText, resolveDispatchRef, GITHUB_API_VERSION };

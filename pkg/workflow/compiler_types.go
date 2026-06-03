@@ -571,7 +571,7 @@ type WorkflowData struct {
 	StaleCheckFull                 bool                            // true when on.stale-check: full is set in frontmatter (enables body hash check alongside frontmatter hash check)
 	EngineConfigSteps              []map[string]any                // steps returned by engine.RenderConfig — prepended before execution steps
 	ServicePortExpressions         string                          // comma-separated ${{ job.services['<id>'].ports['<port>'] }} expressions for AWF --allow-host-service-ports
-	RunInstallScripts              bool                            // true when run-install-scripts: true is set (globally or per node runtime); disables --ignore-scripts on generated npm install steps
+	RunInstallScripts              bool                            // true when runtimes.node.run-install-scripts: true is set (main workflow and/or imports); disables --ignore-scripts on generated npm install steps
 	CachedPermissions              *Permissions                    // cached parsed Permissions object (for performance optimization); populated by applyDefaults after all permission mutations
 	CachedPermissionScopeNamesErr  error                           // cached result of ValidatePermissionScopeNames(Permissions); nil = valid; populated by applyDefaults
 	CachedPermissionScopeNamesSet  bool                            // true once CachedPermissionScopeNamesErr has been populated; distinguishes "valid (nil)" from "not yet computed"
@@ -622,10 +622,11 @@ func (d *WorkflowData) PinContext() *actionpins.PinContext {
 
 // BaseSafeOutputConfig holds common configuration fields for all safe output types
 type BaseSafeOutputConfig struct {
-	Max         *string          `yaml:"max,omitempty"`          // Maximum number of items to create (supports integer or GitHub Actions expression)
-	GitHubToken string           `yaml:"github-token,omitempty"` // GitHub token for this specific output type
-	GitHubApp   *GitHubAppConfig `yaml:"github-app,omitempty"`   // GitHub App credentials for minting a per-handler installation access token
-	Staged      bool             `yaml:"staged,omitempty"`       // If true, emit step summary messages instead of making GitHub API calls for this specific output type
+	Max                      *string          `yaml:"max,omitempty"`                        // Maximum number of items to create (supports integer or GitHub Actions expression)
+	GitHubToken              string           `yaml:"github-token,omitempty"`               // GitHub token for this specific output type
+	GitHubApp                *GitHubAppConfig `yaml:"github-app,omitempty"`                 // GitHub App credentials for minting a per-handler installation access token
+	Staged                   bool             `yaml:"staged,omitempty"`                     // If true, emit step summary messages instead of making GitHub API calls for this specific output type
+	NormalizeClosingKeywords *bool            `yaml:"normalize-closing-keywords,omitempty"` // When true for this output type, strip backticks from recognized issue-closing keywords in body fields.
 }
 
 // SafeOutputsConfig holds configuration for automatic output routes

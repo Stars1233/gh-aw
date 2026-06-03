@@ -39,6 +39,7 @@ type EngineConfig struct {
 	UserAgent          string
 	Command            string // Custom executable path (when set, skip installation steps)
 	HarnessScript      string // Custom Node.js harness script filename (replaces engine default harness script when supported)
+	CopilotSDKDriver   string // Custom Copilot SDK driver script filename or command (copilot engine only; used when copilot-sdk=true). Supports .js/.cjs/.mjs (Node.js), .py (Python), .ts/.mts (TypeScript), .rb (Ruby), or a bare command name for an arbitrary executable in PATH.
 	Env                map[string]string
 	Auth               *EngineAuthConfig // Engine-level auth config (mapped to AWF_AUTH_* env vars for API proxy sidecar auth)
 	Config             string
@@ -164,18 +165,11 @@ func (e *EngineConfig) GetMaxRuns() int {
 // passed through as-is and signal that budget enforcement and token steering
 // should be disabled.
 func parseMaxEffectiveTokensValue(raw any) int64 {
-	if val, ok := typeutil.ParseIntValue(raw); ok && val != 0 {
-		return int64(val)
+	if parsed, ok := parseMaxEffectiveTokenLimitValue(raw); ok {
+		return parsed
 	}
-	if rawStr, ok := raw.(string); ok {
-		trimmed := strings.TrimSpace(rawStr)
-		if trimmed == "-1" {
-			return -1
-		}
-		if parsed, ok := typeutil.ParseInt64KMSuffix(trimmed); ok {
-			return parsed
-		}
-		engineLog.Printf("Ignoring invalid max-effective-tokens value: %q", rawStr)
+	if raw != nil {
+		engineLog.Printf("Ignoring invalid max-effective-tokens value of type %T: %v", raw, raw)
 	}
 	return 0
 }
@@ -195,8 +189,32 @@ func parseMaxRunsValue(raw any) int {
 	return 0
 }
 
+func parseMaxTurnsValue(raw any) string {
+	if val, ok := typeutil.ParseIntValue(raw); ok && val > 0 {
+		return strconv.Itoa(val)
+	}
+	if rawStr, ok := raw.(string); ok {
+		trimmed := strings.TrimSpace(rawStr)
+		if trimmed == "" {
+			return ""
+		}
+		if parsed, err := strconv.Atoi(trimmed); err == nil && parsed > 0 {
+			return strconv.Itoa(parsed)
+		}
+		// Match the same GitHub Actions expression wrapper accepted by the schema.
+		// The schema and GitHub Actions runtime are responsible for validating the
+		// expression body itself; this helper only needs to preserve templated values.
+		if strings.HasPrefix(trimmed, "${{") && strings.HasSuffix(trimmed, "}}") {
+			return trimmed
+		}
+		engineLog.Printf("Ignoring invalid max-turns value: %q", rawStr)
+	}
+	return ""
+}
+
 // ExtractEngineConfig extracts engine configuration from frontmatter, supporting both string and object formats
 func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *EngineConfig) {
+	topLevelMaxTurns := parseMaxTurnsValue(frontmatter["max-turns"])
 	topLevelMaxEffectiveTokens := parseMaxEffectiveTokensValue(frontmatter["max-effective-tokens"])
 	topLevelMaxRuns := parseMaxRunsValue(frontmatter["max-runs"])
 
@@ -208,6 +226,7 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 			engineLog.Printf("Found engine in string format: %s", engineStr)
 			return engineStr, &EngineConfig{
 				ID:                 engineStr,
+				MaxTurns:           topLevelMaxTurns,
 				MaxRuns:            topLevelMaxRuns,
 				MaxEffectiveTokens: topLevelMaxEffectiveTokens,
 			}
@@ -279,6 +298,9 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 						config.PermissionMode = permissionModeStr
 					}
 				}
+				if topLevelMaxTurns != "" {
+					config.MaxTurns = topLevelMaxTurns
+				}
 				config.MaxRuns = topLevelMaxRuns
 				config.MaxEffectiveTokens = topLevelMaxEffectiveTokens
 
@@ -312,13 +334,14 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 				}
 			}
 
-			// Extract optional 'max-turns' field
+			// Extract optional 'max-turns' field (deprecated alias for top-level max-turns).
+			// Use parseMaxTurnsValue for consistent validation: rejects negative values and
+			// arbitrary strings while preserving valid integers and GitHub Actions expressions.
 			if maxTurns, hasMaxTurns := engineObj["max-turns"]; hasMaxTurns {
-				if val, ok := typeutil.ParseIntValue(maxTurns); ok {
-					config.MaxTurns = strconv.Itoa(val)
-				} else if maxTurnsStr, ok := maxTurns.(string); ok {
-					config.MaxTurns = maxTurnsStr
-				}
+				config.MaxTurns = parseMaxTurnsValue(maxTurns)
+			}
+			if topLevelMaxTurns != "" {
+				config.MaxTurns = topLevelMaxTurns
 			}
 
 			// Extract optional 'max-continuations' field
@@ -383,6 +406,13 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 			if harness, hasHarness := engineObj["harness"]; hasHarness {
 				if harnessStr, ok := harness.(string); ok {
 					config.HarnessScript = harnessStr
+				}
+			}
+
+			// Extract optional 'copilot-sdk-driver' field (string - validated separately)
+			if sdkDriver, hasSDKDriver := engineObj["copilot-sdk-driver"]; hasSDKDriver {
+				if sdkDriverStr, ok := sdkDriver.(string); ok {
+					config.CopilotSDKDriver = sdkDriverStr
 				}
 			}
 
@@ -504,6 +534,9 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 			}
 
 			// Return the ID as the engineSetting for backwards compatibility
+			if topLevelMaxTurns != "" {
+				config.MaxTurns = topLevelMaxTurns
+			}
 			config.MaxRuns = topLevelMaxRuns
 			config.MaxEffectiveTokens = topLevelMaxEffectiveTokens
 
@@ -520,8 +553,9 @@ func (c *Compiler) ExtractEngineConfig(frontmatter map[string]any) (string, *Eng
 		}
 	}
 
-	if topLevelMaxEffectiveTokens != 0 || topLevelMaxRuns > 0 {
+	if topLevelMaxTurns != "" || topLevelMaxEffectiveTokens != 0 || topLevelMaxRuns > 0 {
 		return "", &EngineConfig{
+			MaxTurns:           topLevelMaxTurns,
 			MaxRuns:            topLevelMaxRuns,
 			MaxEffectiveTokens: topLevelMaxEffectiveTokens,
 		}

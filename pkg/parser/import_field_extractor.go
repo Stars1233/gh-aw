@@ -53,7 +53,7 @@ type importAccumulator struct {
 	caches                   []string
 	features                 []map[string]any
 	models                   []map[string][]string // model alias maps from each imported file (appended in import order)
-	runInstallScripts        bool                  // true if any imported workflow sets run-install-scripts: true (global or node-level)
+	runInstallScripts        bool                  // true if any imported workflow sets runtimes.node.run-install-scripts: true
 	agentFile                string
 	agentImportSpec          string
 	repositoryImports        []string
@@ -71,10 +71,12 @@ type importAccumulator struct {
 	// First engine.model found in imports that have no engine.id (first-wins strategy).
 	// These express a model preference without selecting a specific engine.
 	mergedEngineModel string
-	// First top-level max-runs / max-effective-tokens / max-daily-effective-tokens
+	// First top-level max-turns / max-runs / max-effective-tokens /
+	// max-daily-effective-tokens
 	// found across imports (first-wins).
 	// Values are stored as JSON-encoded raw values so numeric literals and strings
 	// round-trip consistently through import processing.
+	mergedMaxTurns                string
 	mergedMaxRuns                 string
 	mergedMaxEffectiveTokens      string
 	mergedMaxDailyEffectiveTokens string
@@ -346,74 +348,62 @@ func (acc *importAccumulator) extractEngineConfig(fm map[string]any, fullPath st
 // extractConfigFields extracts scalar and builder-based configuration fields from the
 // frontmatter map and writes them into the appropriate accumulator builders and slices.
 //
-// Side effects: acc.mergedMaxRuns, acc.mergedMaxEffectiveTokens,
+// Side effects: acc.mergedMaxTurns, acc.mergedMaxRuns, acc.mergedMaxEffectiveTokens,
 // acc.mergedMaxDailyEffectiveTokens, acc.mcpServersBuilder,
 // acc.safeOutputs, acc.mcpScripts, acc.stepsBuilder, acc.runtimesBuilder,
 // acc.servicesBuilder, acc.networkBuilder, acc.permissionsBuilder,
 // acc.secretMaskingBuilder.
 func (acc *importAccumulator) extractConfigFields(fm map[string]any, fullPath string) {
-	// Extract max-runs (first-wins across imports).
-	if acc.mergedMaxRuns == "" {
-		if maxRunsJSON, merr := extractFieldJSONFromMap(fm, "max-runs", ""); merr == nil &&
-			maxRunsJSON != "" && maxRunsJSON != "null" {
-			acc.mergedMaxRuns = maxRunsJSON
-			parserLog.Printf("Extracted max-runs from import: %s", fullPath)
-		}
-	}
+	acc.extractFirstWinsJSONField(fm, fullPath, "max-turns", &acc.mergedMaxTurns)
+	acc.extractFirstWinsJSONField(fm, fullPath, "max-runs", &acc.mergedMaxRuns)
+	acc.extractFirstWinsJSONField(fm, fullPath, "max-effective-tokens", &acc.mergedMaxEffectiveTokens)
+	acc.extractFirstWinsJSONField(fm, fullPath, "max-daily-effective-tokens", &acc.mergedMaxDailyEffectiveTokens)
 
-	// Extract max-effective-tokens (first-wins across imports).
-	if acc.mergedMaxEffectiveTokens == "" {
-		if maxTokensJSON, merr := extractFieldJSONFromMap(fm, "max-effective-tokens", ""); merr == nil &&
-			maxTokensJSON != "" && maxTokensJSON != "null" {
-			acc.mergedMaxEffectiveTokens = maxTokensJSON
-			parserLog.Printf("Extracted max-effective-tokens from import: %s", fullPath)
-		}
-	}
+	acc.appendJSONBuilderField(fm, "mcp-servers", "{}", &acc.mcpServersBuilder)
+	acc.appendJSONSliceField(fm, "safe-outputs", "{}", &acc.safeOutputs)
+	acc.appendJSONSliceField(fm, "mcp-scripts", "{}", &acc.mcpScripts)
+	acc.appendYAMLBuilderField(fm, "steps", &acc.stepsBuilder)
+	acc.appendJSONBuilderField(fm, "runtimes", "{}", &acc.runtimesBuilder)
+	acc.appendYAMLBuilderField(fm, "services", &acc.servicesBuilder)
+	acc.appendJSONBuilderField(fm, "network", "{}", &acc.networkBuilder)
+	acc.appendJSONBuilderField(fm, "permissions", "{}", &acc.permissionsBuilder)
+	acc.appendJSONBuilderField(fm, "secret-masking", "{}", &acc.secretMaskingBuilder)
+}
 
-	// Extract max-daily-effective-tokens (first-wins across imports).
-	if acc.mergedMaxDailyEffectiveTokens == "" {
-		if maxDailyJSON, merr := extractFieldJSONFromMap(fm, "max-daily-effective-tokens", ""); merr == nil &&
-			maxDailyJSON != "" && maxDailyJSON != "null" {
-			acc.mergedMaxDailyEffectiveTokens = maxDailyJSON
-			parserLog.Printf("Extracted max-daily-effective-tokens from import: %s", fullPath)
-		}
+func (acc *importAccumulator) extractFirstWinsJSONField(fm map[string]any, fullPath, field string, target *string) {
+	if *target != "" {
+		return
 	}
+	fieldJSON, err := extractFieldJSONFromMap(fm, field, "")
+	if err != nil || fieldJSON == "" || fieldJSON == "null" {
+		return
+	}
+	*target = fieldJSON
+	parserLog.Printf("Extracted %s from import: %s", field, fullPath)
+}
 
-	if mcpServersContent, err := extractFieldJSONFromMap(fm, "mcp-servers", "{}"); err == nil && mcpServersContent != "" && mcpServersContent != "{}" {
-		acc.mcpServersBuilder.WriteString(mcpServersContent + "\n")
+func (acc *importAccumulator) appendJSONBuilderField(fm map[string]any, field, emptyValue string, builder *strings.Builder) {
+	content, err := extractFieldJSONFromMap(fm, field, emptyValue)
+	if err != nil || content == "" || content == emptyValue {
+		return
 	}
+	builder.WriteString(content + "\n")
+}
 
-	if safeOutputsContent, err := extractFieldJSONFromMap(fm, "safe-outputs", "{}"); err == nil && safeOutputsContent != "" && safeOutputsContent != "{}" {
-		acc.safeOutputs = append(acc.safeOutputs, safeOutputsContent)
+func (acc *importAccumulator) appendJSONSliceField(fm map[string]any, field, emptyValue string, target *[]string) {
+	content, err := extractFieldJSONFromMap(fm, field, emptyValue)
+	if err != nil || content == "" || content == emptyValue {
+		return
 	}
+	*target = append(*target, content)
+}
 
-	if mcpScriptsContent, err := extractFieldJSONFromMap(fm, "mcp-scripts", "{}"); err == nil && mcpScriptsContent != "" && mcpScriptsContent != "{}" {
-		acc.mcpScripts = append(acc.mcpScripts, mcpScriptsContent)
+func (acc *importAccumulator) appendYAMLBuilderField(fm map[string]any, field string, builder *strings.Builder) {
+	content, err := extractYAMLFieldFromMap(fm, field)
+	if err != nil || content == "" {
+		return
 	}
-
-	if stepsContent, err := extractYAMLFieldFromMap(fm, "steps"); err == nil && stepsContent != "" {
-		acc.stepsBuilder.WriteString(stepsContent + "\n")
-	}
-
-	if runtimesContent, err := extractFieldJSONFromMap(fm, "runtimes", "{}"); err == nil && runtimesContent != "" && runtimesContent != "{}" {
-		acc.runtimesBuilder.WriteString(runtimesContent + "\n")
-	}
-
-	if servicesContent, err := extractYAMLFieldFromMap(fm, "services"); err == nil && servicesContent != "" {
-		acc.servicesBuilder.WriteString(servicesContent + "\n")
-	}
-
-	if networkContent, err := extractFieldJSONFromMap(fm, "network", "{}"); err == nil && networkContent != "" && networkContent != "{}" {
-		acc.networkBuilder.WriteString(networkContent + "\n")
-	}
-
-	if permissionsContent, err := extractFieldJSONFromMap(fm, "permissions", "{}"); err == nil && permissionsContent != "" && permissionsContent != "{}" {
-		acc.permissionsBuilder.WriteString(permissionsContent + "\n")
-	}
-
-	if secretMaskingContent, err := extractFieldJSONFromMap(fm, "secret-masking", "{}"); err == nil && secretMaskingContent != "" && secretMaskingContent != "{}" {
-		acc.secretMaskingBuilder.WriteString(secretMaskingContent + "\n")
-	}
+	builder.WriteString(content + "\n")
 }
 
 // extractActivationFields extracts activation and authentication-related fields from
@@ -740,6 +730,7 @@ func (acc *importAccumulator) toImportsResult(topologicalOrder []string) *Import
 		MergedEngineMCPToolTimeout:    acc.mergedEngineMCPToolTimeout,
 		MergedEngineMCPSessionTimeout: acc.mergedEngineMCPSessionTimeout,
 		MergedEngineModel:             acc.mergedEngineModel,
+		MergedMaxTurns:                acc.mergedMaxTurns,
 		MergedMaxRuns:                 acc.mergedMaxRuns,
 		MergedMaxEffectiveTokens:      acc.mergedMaxEffectiveTokens,
 		MergedMaxDailyEffectiveTokens: acc.mergedMaxDailyEffectiveTokens,

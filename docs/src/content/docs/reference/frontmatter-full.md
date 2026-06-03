@@ -1408,11 +1408,6 @@ permissions:
   # (optional)
   checks: "read"
 
-  # Permission level for Copilot requests (write/none only). Set to write to allow
-  # Copilot inference via the GitHub Actions token.
-  # (optional)
-  copilot-requests: "write"
-
   # Permission for repository contents (read: view files, write: modify
   # files/branches, none: no access)
   # (optional)
@@ -1674,7 +1669,7 @@ experiments:
   # Storage backend for experiment state. 'repo' (default) persists state to a git
   # branch named 'experiments/{sanitizedWorkflowID}' (workflow ID lowercased with
   # hyphens removed, e.g. 'my-workflow' -> 'experiments/myworkflow') for durability
-  # across cache evictions. 'cache' uses GitHub Actions cache (legacy behaviour).
+  # across cache evictions. 'cache' uses GitHub Actions cache (legacy behavior).
   # Repo storage is recommended because experiment data is valuable and more durable
   # than cache.
   # (optional)
@@ -2313,6 +2308,12 @@ engine:
   # (optional)
   copilot-sdk: true
 
+  # Custom Node.js Copilot SDK driver script filename (copilot engine only). This is
+  # only used when copilot-sdk: true is set and must be a safe basename ending with
+  # .js, .cjs, or .mjs.
+  # (optional)
+  copilot-sdk-driver: "example-value"
+
 # Format 3: Inline engine definition: specifies a runtime adapter and optional
 # provider settings directly in the workflow frontmatter, without requiring a
 # named catalog entry
@@ -2533,7 +2534,7 @@ engine:
   # the default engine when engine.id is not specified.
   model: "example-value"
 
-# Explicit ET budget control for firewall cost enforcement. Defaults to 25000000
+# Explicit ET budget control for firewall cost enforcement. Defaults to 25M
 # when omitted. Set to a negative value to disable budget enforcement and token
 # steering.
 # (optional)
@@ -4730,6 +4731,22 @@ safe-outputs:
     # (optional)
     signed-commits: true
 
+    # When true, automatically close older open pull requests from the same workflow
+    # (identified by the workflow-id marker in the PR body) with a comment linking to
+    # the new PR. Searches for open PRs containing the workflow-id marker. Maximum 10
+    # pull requests will be closed. Only runs if PR creation succeeds.
+    # (optional)
+    close-older-pull-requests: true
+
+    # Optional explicit deduplication key for close-older matching. When set, a `<!--
+    # gh-aw-close-key: <value> -->` marker is embedded in the PR body and used as the
+    # primary key for searching and filtering older pull requests instead of the
+    # workflow-id markers. This gives deterministic isolation across caller workflows
+    # and is stable across workflow renames. The value is normalized to identifier
+    # style (lowercase alphanumeric, dashes, underscores).
+    # (optional)
+    close-older-key: "example-value"
+
     # If true, emit step summary messages instead of making GitHub API calls for this
     # specific output type (preview mode)
     # (optional)
@@ -6900,7 +6917,7 @@ safe-outputs:
     # Default values injected when the model omits a field
     # (optional)
     defaults:
-      # Behaviour when no files match: 'error' (default) or 'ignore'
+      # Behavior when no files match: 'error' (default) or 'ignore'
       # (optional)
       if-no-files: "error"
 

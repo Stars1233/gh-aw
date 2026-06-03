@@ -1,10 +1,14 @@
 package workflow
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+//go:embed prompts/checkouts_no_credentials_warning.md
+var checkoutsNoCredentialsWarning string
 
 // ParseCheckoutConfigs converts a raw frontmatter value (single map or array of maps)
 // into a slice of CheckoutConfig entries.
@@ -333,10 +337,13 @@ func buildCheckoutsPromptContent(checkouts []*CheckoutConfig) string {
 
 	// General guidance about unavailable branches
 	sb.WriteString("  - **Note**: If a branch you need is not in the list above and is not listed as an additional fetched ref, " +
-		"it has NOT been checked out. For private repositories you cannot fetch it without proper authentication. " +
+		"it has NOT been checked out. For private repositories you cannot fetch it. " +
 		"If the branch is required and not available, exit with an error and ask the user to add it to the " +
 		"`fetch:` option of the `checkout:` configuration (e.g., `fetch: [\"refs/pulls/open/*\"]` for all open PR refs, " +
 		"or `fetch: [\"main\", \"feature/my-branch\"]` for specific branches).\n")
+
+	// Credential warning — always present for any checkout-enabled workflow.
+	sb.WriteString(checkoutsNoCredentialsWarning)
 
 	return sb.String()
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path"
@@ -26,21 +27,25 @@ var listPackageDirFilesForHost = listRepositoryPackageDirFilesForHost
 var listPackageDirFilesRecursivelyForHost = listRepositoryPackageDirFilesRecursivelyForHost
 var listPackageDirSubdirsForHost = listRepositoryPackageDirSubdirsForHost
 var getRepositoryPackageDefaultBranch = resolveRepositoryPackageDefaultBranch
+var getRepositoryPackageLatestRelease = resolveRepositoryPackageLatestRelease
 var addPackageManifestLog = logger.New("cli:add_package_manifest")
 
 var packageSourceDirectories = []string{"workflows", ".github/workflows"}
 
 const repositoryPackageManifestFileName = "aw.yml"
 const repositoryPackageManifestVersion = "1"
+const ghAwRepositorySlug = "github/gh-aw"
 const packageSkillsDirectory = "skills"
 const packageAgentsDirectory = "agents"
 const packageSkillMarkerFile = "SKILL.md"
 
 type resolvedRepositoryPackage struct {
 	ManifestPath       string
+	ResolvedRef        string
 	Name               string
 	Emoji              string
 	Description        string
+	License            string
 	DocsPath           string
 	InstallationSource []string
 	SkillFiles         []resolvedPackageSkillFile
@@ -77,13 +82,23 @@ func resolveRepositoryPackage(repoSpec *RepoSpec, host string) (*resolvedReposit
 
 	owner := parts[0]
 	repo := parts[1]
-	ref := repoSpec.Version
+	// At manifest-fetch time there is no resolved package metadata yet.
+	ref := repositoryPackageEffectiveRef(repoSpec, nil)
 	if ref == "" {
-		ref = "main"
-		if defaultBranch, err := getRepositoryPackageDefaultBranch(repoSpec.RepoSlug, host); err == nil {
-			ref = defaultBranch
-		} else {
-			addPackageManifestLog.Printf("failed to resolve default branch for %s (host=%q), falling back to %q: %v", repoSpec.RepoSlug, host, ref, err)
+		if isGhAwRepository(repoSpec.RepoSlug) {
+			if latestRelease, err := getRepositoryPackageLatestRelease(repoSpec.RepoSlug, host); err == nil {
+				ref = latestRelease
+			} else {
+				addPackageManifestLog.Printf("failed to resolve latest release for %s (host=%q): %v", repoSpec.RepoSlug, host, err)
+			}
+		}
+		if ref == "" {
+			ref = "main"
+			if defaultBranch, err := getRepositoryPackageDefaultBranch(repoSpec.RepoSlug, host); err == nil {
+				ref = defaultBranch
+			} else {
+				addPackageManifestLog.Printf("failed to resolve default branch for %s (host=%q), falling back to %q: %v", repoSpec.RepoSlug, host, ref, err)
+			}
 		}
 	}
 	packagePath := strings.Trim(repoSpec.PackagePath, "/")
@@ -141,9 +156,11 @@ func resolveRepositoryPackage(repoSpec *RepoSpec, host string) (*resolvedReposit
 
 	return &resolvedRepositoryPackage{
 		ManifestPath:       manifestPath,
+		ResolvedRef:        ref,
 		Name:               manifest.Name,
 		Emoji:              manifest.Emoji,
 		Description:        manifest.Description,
+		License:            manifest.License,
 		DocsPath:           docsPath,
 		InstallationSource: installationSources,
 		SkillFiles:         skillFiles,
@@ -176,6 +193,7 @@ type repositoryPackageManifest struct {
 	Name            string
 	Emoji           string
 	Description     string
+	License         string
 	Includes        []string
 	Files           []string
 	Skills          []string // skill directory paths (e.g. "skills/my-skill")
@@ -238,6 +256,10 @@ func parseRepositoryPackageManifest(manifestPath string, content []byte) (*repos
 
 	if emoji, ok := stringValue(root["emoji"]); ok {
 		manifest.Emoji = emoji
+	}
+
+	if license, ok := stringValue(root["license"]); ok {
+		manifest.License = license
 	}
 
 	if includesValue, ok := root["includes"]; ok {
@@ -705,6 +727,26 @@ func normalizePackageInstallablePaths(paths []string, packagePath string) []stri
 	return normalized
 }
 
+func validateManifestInstallableWorkflowPrivacy(manifestPath string, installationSources []string, readWorkflow func(string) ([]byte, error)) error {
+	for _, installationSource := range installationSources {
+		if isActionWorkflowPath(installationSource) {
+			continue
+		}
+
+		content, err := readWorkflow(installationSource)
+		if err != nil {
+			return fmt.Errorf("invalid Agentic Workflow manifest %q: %w", manifestPath, err)
+		}
+
+		privateValue, hasPrivate := ExtractWorkflowPrivateSetting(string(content))
+		if hasPrivate && privateValue {
+			return fmt.Errorf("invalid Agentic Workflow manifest %q: workflow %q sets private: true and cannot be included because private workflows cannot be added", manifestPath, installationSource)
+		}
+	}
+
+	return nil
+}
+
 func isSupportedPackageInstallablePath(p string) bool {
 	// Normalize separators to forward slashes (consistent with joinRepositoryPackagePath) then
 	// clean to reject path traversal (e.g. "workflows/../README.md" → "README.md").
@@ -882,4 +924,43 @@ func resolveRepositoryPackageDefaultBranch(repoSlug, host string) (string, error
 		return "", fmt.Errorf("repository %s on %s returned an empty default branch; ensure the repository exists and is accessible", repoSlug, targetHost)
 	}
 	return branch, nil
+}
+
+// repositoryPackageEffectiveRef returns the effective ref for repository package
+// operations. Explicit user-provided versions always win; otherwise this uses a
+// previously resolved package ref when available.
+func repositoryPackageEffectiveRef(repoSpec *RepoSpec, pkg *resolvedRepositoryPackage) string {
+	if repoSpec != nil && repoSpec.Version != "" {
+		return repoSpec.Version
+	}
+	if pkg != nil && pkg.ResolvedRef != "" {
+		return pkg.ResolvedRef
+	}
+	return ""
+}
+
+// isGhAwRepository reports whether repoSlug identifies github/gh-aw.
+// Matching is case-insensitive and ignores surrounding whitespace.
+func isGhAwRepository(repoSlug string) bool {
+	return strings.EqualFold(strings.TrimSpace(repoSlug), ghAwRepositorySlug)
+}
+
+// resolveRepositoryPackageLatestRelease resolves the latest stable release tag
+// for a repository package source.
+//
+// repoSlug must be in "owner/repo" format. host is an optional explicit GitHub
+// hostname (for example "github.com" or a GHES host); when provided, gh API
+// calls are executed against that host.
+func resolveRepositoryPackageLatestRelease(repoSlug, host string) (string, error) {
+	deps := workflowUpdateDeps{
+		runReleasesAPI: func(ctx context.Context, repo string) ([]byte, error) {
+			args := []string{"api", fmt.Sprintf("/repos/%s/releases", repo), "--jq", ".[].tag_name"}
+			if host != "" {
+				return workflow.RunGHWithHost("Fetching releases...", host, args...)
+			}
+			return workflow.RunGHContext(ctx, "Fetching releases...", args...)
+		},
+	}
+
+	return resolveLatestReleaseWithDeps(context.Background(), deps, repoSlug, "", true, false, 0)
 }

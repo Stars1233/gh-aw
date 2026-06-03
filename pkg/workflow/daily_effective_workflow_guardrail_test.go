@@ -56,46 +56,6 @@ func TestResolveMaxDailyEffectiveTokens(t *testing.T) {
 	})
 }
 
-func TestHasMaxDailyEffectiveTokensEnvConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		env  string
-		want bool
-	}{
-		{
-			name: "detects unquoted key",
-			env: `GH_AW_MAX_DAILY_EFFECTIVE_TOKENS: "1234"
-OTHER_KEY: "x"`,
-			want: true,
-		},
-		{
-			name: "detects quoted key",
-			env:  `"GH_AW_MAX_DAILY_EFFECTIVE_TOKENS": "1234"`,
-			want: true,
-		},
-		{
-			name: "ignores comments and substrings",
-			env: `# GH_AW_MAX_DAILY_EFFECTIVE_TOKENS: "1234"
-SOME_GH_AW_MAX_DAILY_EFFECTIVE_TOKENS_SUFFIX: "1234"
-NOTE: "GH_AW_MAX_DAILY_EFFECTIVE_TOKENS configured elsewhere"`,
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := hasMaxDailyEffectiveTokensEnvConfig(tt.env)
-			if got != tt.want {
-				t.Fatalf("hasMaxDailyEffectiveTokensEnvConfig() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDailyEffectiveWorkflowGuardrailInCompiledWorkflow(t *testing.T) {
 	testDir := testutil.TempDir(t, "daily-effective-workflow-guardrail-*")
 	workflowFile := filepath.Join(testDir, "daily-guardrail.md")
@@ -139,14 +99,14 @@ Guardrail test workflow`
 	if !strings.Contains(lockStr, "id: daily-effective-workflow-guardrail") {
 		t.Fatal("expected activation job to include the daily workflow ET guardrail step")
 	}
-	if strings.Contains(lockStr, "if: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
-		t.Fatal("expected frontmatter-configured guardrail step to run unconditionally (threshold is in step env, not workflow env)")
+	if !strings.Contains(lockStr, "if: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
+		t.Fatal("expected frontmatter-configured guardrail step to use env-based runtime gating")
 	}
 	if !strings.Contains(lockStr, "check_daily_effective_workflow_guardrail.cjs") {
 		t.Fatal("expected activation job to call check_daily_effective_workflow_guardrail.cjs")
 	}
 	if !strings.Contains(lockStr, `GH_AW_MAX_DAILY_EFFECTIVE_TOKENS: "100000000"`) {
-		t.Fatal("expected activation guardrail step to receive the configured threshold")
+		t.Fatal("expected activation job env to include normalized guardrail threshold")
 	}
 	if !strings.Contains(lockStr, "daily_effective_workflow_exceeded: ${{ steps.daily-effective-workflow-guardrail.outputs.daily_effective_workflow_exceeded == 'true' }}") {
 		t.Fatal("expected activation job to expose daily_effective_workflow_exceeded output")
@@ -172,12 +132,12 @@ Guardrail test workflow`
 	if strings.Contains(activationSection, "issues: write") {
 		t.Fatal("expected activation permissions to avoid issues: write for the daily ET guardrail")
 	}
-	if !strings.Contains(activationSection, "safe-output-artifact-client: 'true'") {
-		t.Fatal("expected frontmatter-configured guardrail to install @actions/artifact unconditionally")
+	if !strings.Contains(activationSection, "safe-output-artifact-client: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
+		t.Fatal("expected frontmatter-configured guardrail to gate artifact client installation dynamically")
 	}
 }
 
-func TestNoDailyEffectiveWorkflowReferencesWithoutGuardrail(t *testing.T) {
+func TestDailyETGuardrailDynamicGate(t *testing.T) {
 	testDir := testutil.TempDir(t, "daily-effective-workflow-no-guardrail-*")
 	workflowFile := filepath.Join(testDir, "no-daily-guardrail.md")
 
@@ -208,11 +168,17 @@ No daily guardrail`
 	}
 
 	lockStr := string(lockContent)
-	if strings.Contains(lockStr, "daily_effective_workflow_exceeded") {
-		t.Fatal("expected workflows without the daily ET guardrail to omit daily_effective_workflow_exceeded references")
+	if !strings.Contains(lockStr, "id: daily-effective-workflow-guardrail") {
+		t.Fatal("expected activation job to emit the daily ET guardrail step even when threshold is unset")
 	}
-	if strings.Contains(lockStr, "GH_AW_DAILY_EFFECTIVE_WORKFLOW_") {
-		t.Fatal("expected workflows without the daily ET guardrail to omit daily ET env vars")
+	if !strings.Contains(lockStr, "if: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
+		t.Fatal("expected emitted daily ET guardrail step to be dynamically skipped when threshold is unset")
+	}
+	if !strings.Contains(lockStr, "daily_effective_workflow_exceeded") {
+		t.Fatal("expected workflows to continue wiring daily ET outputs when guardrail step is emitted")
+	}
+	if !strings.Contains(lockStr, "safe-output-artifact-client: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
+		t.Fatal("expected emitted guardrail to gate artifact client installation dynamically")
 	}
 }
 
@@ -257,5 +223,48 @@ Daily guardrail via env var`
 	}
 	if !strings.Contains(lockStr, "safe-output-artifact-client: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
 		t.Fatal("expected setup step to conditionally install artifact client when daily ET guardrail is env-configured")
+	}
+}
+
+func TestDailyETGuardrailNegativeDisable(t *testing.T) {
+	testDir := testutil.TempDir(t, "daily-effective-workflow-explicit-disable-*")
+	workflowFile := filepath.Join(testDir, "daily-guardrail-explicit-disable.md")
+
+	workflow := `---
+on:
+  workflow_dispatch:
+  stale-check: false
+max-daily-effective-tokens: -1
+safe-outputs:
+  add-comment:
+    max: 1
+---
+
+Explicitly disable daily guardrail`
+
+	if err := os.WriteFile(workflowFile, []byte(workflow), 0o644); err != nil {
+		t.Fatalf("failed to write test workflow: %v", err)
+	}
+
+	compiler := NewCompiler()
+	if err := compiler.CompileWorkflow(workflowFile); err != nil {
+		t.Fatalf("failed to compile workflow: %v", err)
+	}
+
+	lockFile := stringutil.MarkdownToLockFile(workflowFile)
+	lockContent, err := os.ReadFile(lockFile)
+	if err != nil {
+		t.Fatalf("failed to read lock file: %v", err)
+	}
+	lockStr := string(lockContent)
+
+	if strings.Contains(lockStr, "id: daily-effective-workflow-guardrail") {
+		t.Fatal("expected explicit negative workflow threshold to suppress guardrail step emission")
+	}
+	if strings.Contains(lockStr, "daily_effective_workflow_exceeded") {
+		t.Fatal("expected explicit negative workflow threshold to suppress daily ET output wiring")
+	}
+	if strings.Contains(lockStr, "safe-output-artifact-client: ${{ env.GH_AW_MAX_DAILY_EFFECTIVE_TOKENS != '' }}") {
+		t.Fatal("expected explicit negative workflow threshold to suppress dynamic artifact client gating")
 	}
 }

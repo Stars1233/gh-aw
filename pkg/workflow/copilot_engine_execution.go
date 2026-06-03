@@ -22,8 +22,10 @@
 package workflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +38,40 @@ import (
 var copilotExecLog = logger.New("workflow:copilot_engine_execution")
 
 const customEngineCommandScriptPath = "/tmp/gh-aw/engine-command.sh"
-const nodeRuntimeResolutionCommand = `GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || true)"; fi; if [ -z "$GH_AW_NODE_EXEC" ]; then echo "node runtime missing on this runner — check runtimes.node in workflow YAML" >&2; exit 127; fi; "$GH_AW_NODE_EXEC"`
+const nodePathSetupCommand = `GH_AW_NPM_GLOBAL_ROOT="$(npm root -g 2>/dev/null || true)"; if [ -n "$GH_AW_NPM_GLOBAL_ROOT" ]; then export NODE_PATH="${GH_AW_NPM_GLOBAL_ROOT}${NODE_PATH:+:${NODE_PATH}}"; fi`
+const nodeRuntimeResolutionCommand = `GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || true)"; fi; if [ -z "$GH_AW_NODE_EXEC" ]; then echo "node runtime missing on this runner — check runtimes.node in workflow YAML" >&2; exit 127; fi; ` + nodePathSetupCommand + `; "$GH_AW_NODE_EXEC"`
+const nodePathSetupCommandForCopilotSDK = `GH_AW_WORKSPACE_NODE_MODULES="${GITHUB_WORKSPACE:-$PWD}/node_modules"; if [ -d "$GH_AW_WORKSPACE_NODE_MODULES" ]; then export NODE_PATH="${GH_AW_WORKSPACE_NODE_MODULES}${NODE_PATH:+:${NODE_PATH}}"; fi; ` + nodePathSetupCommand
+const nodeRuntimeResolutionCommandForCopilotSDK = `GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || true)"; fi; if [ -z "$GH_AW_NODE_EXEC" ]; then echo "node runtime missing on this runner — check runtimes.node in workflow YAML" >&2; exit 127; fi; ` + nodePathSetupCommandForCopilotSDK + `; "$GH_AW_NODE_EXEC"`
+
+// copilotSDKDriverExecArgs returns the runtime command and driver path argument for the
+// given SDK driver filename.
+//
+// For language scripts with a recognized extension, the runtime command is the appropriate
+// language executor and driverArg is the driver filename (which the caller will prefix with
+// SetupActionDestinationShell). For bare command names (no extension), the driver is treated
+// as an arbitrary executable in PATH: runtimeCmd is the command itself and driverArg is empty.
+//
+//   - .js/.cjs/.mjs → ("$GH_AW_NODE_EXEC", "driver.cjs")
+//   - .py           → ("python3",           "driver.py")
+//   - .ts/.mts      → ("ts-node",           "driver.ts")
+//   - .rb           → ("ruby",              "driver.rb")
+//   - (no ext)      → ("my-driver",         "")
+func copilotSDKDriverExecArgs(driverName string) (runtimeCmd, driverArg string) {
+	ext := strings.ToLower(filepath.Ext(driverName))
+	switch ext {
+	case ".js", ".cjs", ".mjs":
+		return `"$GH_AW_NODE_EXEC"`, driverName
+	case ".py":
+		return "python3", driverName
+	case ".ts", ".mts":
+		return "ts-node", driverName
+	case ".rb":
+		return "ruby", driverName
+	default:
+		// No extension — arbitrary command in PATH; use name directly as command.
+		return driverName, ""
+	}
+}
 
 // GetExecutionSteps returns the GitHub Actions steps for executing GitHub Copilot CLI
 func (e *CopilotEngine) GetExecutionSteps(workflowData *WorkflowData, logFile string) []GitHubActionStep {
@@ -195,15 +230,87 @@ func (e *CopilotEngine) GetExecutionSteps(workflowData *WorkflowData, logFile st
 	if workflowData.EngineConfig != nil && workflowData.EngineConfig.HarnessScript != "" {
 		harnessScriptName = workflowData.EngineConfig.HarnessScript
 	}
+	isCopilotSDKMode := workflowData.EngineConfig != nil && workflowData.EngineConfig.CopilotSDK
+	sdkDriverScriptName := "copilot_sdk_driver.cjs"
+	if workflowData.EngineConfig != nil && workflowData.EngineConfig.CopilotSDKDriver != "" {
+		sdkDriverScriptName = workflowData.EngineConfig.CopilotSDKDriver
+	}
+
+	// copilotSDKServerArgsJSON holds the JSON-encoded server-args array that will be set in
+	// GH_AW_COPILOT_SDK_SERVER_ARGS when copilot-sdk: true. It is declared here so that the
+	// env-block section further down can reference the same value that was computed while
+	// building the command, avoiding the need to re-derive it separately.
+	var copilotSDKServerArgsJSON string
+
 	var execPrefix string
 	if harnessScriptName != "" {
 		// Harness wraps the copilot subprocess; ${RUNNER_TEMP} and ${GH_AW_NODE_BIN} expand in the shell context.
-		execPrefix = fmt.Sprintf(`%s %s/%s %s`, nodeRuntimeResolutionCommand, SetupActionDestinationShell, harnessScriptName, commandName)
+		runtimeResolutionCommand := nodeRuntimeResolutionCommand
+		if isCopilotSDKMode {
+			runtimeResolutionCommand = nodeRuntimeResolutionCommandForCopilotSDK
+		}
+		if isCopilotSDKMode {
+			// Driver mode: the harness receives the driver runtime command and the driver path (or just
+			// the arbitrary command) as its argv, then calls runProcess(command, args) on the driver.
+			//
+			// For language scripts (.js/.cjs/.mjs, .py, .ts/.mts, .rb), the driver lives in the
+			// setup action directory and is prefixed with SetupActionDestinationShell. The runtime
+			// command is determined by the file extension:
+			//   .js/.cjs/.mjs → "$GH_AW_NODE_EXEC" driver.cjs copilot-binary
+			//   .py            → python3             driver.py  copilot-binary
+			//   .ts/.mts       → ts-node             driver.ts  copilot-binary
+			//   .rb            → ruby                driver.rb  copilot-binary
+			//
+			// For bare command names (no extension), the driver is treated as an arbitrary executable
+			// in PATH — no SetupActionDestinationShell prefix, no runtime wrapper:
+			//   my-driver copilot-binary
+			driverRuntimeCmd, driverArg := copilotSDKDriverExecArgs(sdkDriverScriptName)
+			if driverArg != "" {
+				// Language script: harness runs <runtime> <setup-action-dir>/<driver> <copilot-binary>
+				execPrefix = fmt.Sprintf(`%s %s/%s %s %s/%s %s`,
+					runtimeResolutionCommand, SetupActionDestinationShell, harnessScriptName,
+					driverRuntimeCmd,
+					SetupActionDestinationShell, sdkDriverScriptName, commandName)
+			} else {
+				// Arbitrary command: harness runs <driver-cmd> <copilot-binary> directly
+				execPrefix = fmt.Sprintf(`%s %s/%s %s %s`,
+					runtimeResolutionCommand, SetupActionDestinationShell, harnessScriptName,
+					driverRuntimeCmd, commandName)
+			}
+		} else {
+			execPrefix = fmt.Sprintf(`%s %s/%s %s`, runtimeResolutionCommand, SetupActionDestinationShell, harnessScriptName, commandName)
+		}
 	} else {
 		execPrefix = commandName
 	}
 
-	if sandboxEnabled {
+	if isCopilotSDKMode {
+		// SDK driver mode: configuration is passed via environment variables so that
+		// copilot_sdk_driver.cjs is a self-contained program started by the harness
+		// like any other command.
+		//
+		// GH_AW_COPILOT_SDK_SERVER_ARGS carries the JSON-encoded CLI argument list for
+		// the headless Copilot CLI sidecar (--headless, --no-auto-update, --port, and all
+		// configuration flags). The driver reads this at runtime and passes the args
+		// directly to the spawned sidecar process without any argument parsing.
+		//
+		// The driver appends --add-dir $GITHUB_WORKSPACE automatically when that env var
+		// is set, so addWorkspaceDir does not need to be signalled separately.
+		serverArgs := append(
+			[]string{"--headless", "--no-auto-update", "--port", strconv.Itoa(constants.DefaultCopilotSDKPort)},
+			copilotArgs...,
+		)
+		serverArgsJSON, err := json.Marshal(serverArgs)
+		if err != nil {
+			// This should never happen with a plain string slice, but fall back to an
+			// empty array so the run is not blocked.
+			copilotExecLog.Printf("warning: failed to marshal SDK server args: %v; falling back to empty array", err)
+			serverArgsJSON = []byte(`[]`)
+		}
+		copilotSDKServerArgsJSON = string(serverArgsJSON)
+		// No CLI args are appended; all options are in env vars.
+		copilotCommand = execPrefix
+	} else if sandboxEnabled {
 		// Sandbox mode: add workspace dir and pass prompt file path directly
 		copilotCommand = fmt.Sprintf(`%s %s --add-dir "${GITHUB_WORKSPACE}" --prompt-file /tmp/gh-aw/aw-prompts/prompt.txt`, execPrefix, shellJoinArgs(copilotArgs))
 	} else {
@@ -444,6 +551,8 @@ touch %s
 
 	if workflowData.EngineConfig != nil && workflowData.EngineConfig.MaxTurns != "" {
 		env["GH_AW_MAX_TURNS"] = workflowData.EngineConfig.MaxTurns
+	} else {
+		env["GH_AW_MAX_TURNS"] = compilerenv.BuildDefaultMaxTurnsExpression()
 	}
 
 	// Set the model environment variable.
@@ -501,6 +610,13 @@ touch %s
 	if workflowData.EngineConfig != nil && workflowData.EngineConfig.CopilotSDK {
 		env[constants.CopilotSDKURIEnvVar] = fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultCopilotSDKPort)
 		copilotExecLog.Printf("copilot-sdk enabled: set %s=%s", constants.CopilotSDKURIEnvVar, env[constants.CopilotSDKURIEnvVar])
+		// Signal the harness to start the driver as a normal subprocess rather than
+		// managing the SDK session inline.
+		env[constants.CopilotSDKDriverEnvVar] = "1"
+		// Provide the complete CLI argument list for the headless sidecar so the
+		// harness can start it in driver mode without any argument parsing.
+		env[constants.CopilotSDKServerArgsEnvVar] = copilotSDKServerArgsJSON
+		copilotExecLog.Printf("copilot-sdk driver mode: set %s and %s", constants.CopilotSDKDriverEnvVar, constants.CopilotSDKServerArgsEnvVar)
 	}
 
 	// Add HTTP MCP header secrets to env for passthrough

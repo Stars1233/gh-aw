@@ -36,7 +36,9 @@ safe-outputs:
     title-prefix: "[concurrency] "
 description: Performs deep-dive concurrency analysis on each safe-outputs MCP server tool to ensure thread-safety and detect race conditions
 emoji: 📊
-engine: copilot
+engine:
+  id: copilot
+  copilot-sdk: true
 name: Daily MCP Tool Concurrency Analysis
 strict: true
 timeout-minutes: 45
@@ -291,6 +293,16 @@ If issues were found (CRITICAL, HIGH, or MEDIUM severity):
 
 Use the following template:
 
+Use h3 (`###`) or lower for all headers in the issue body. Never use h1 (`#`) or h2 (`##`) — these are reserved for the issue title.
+
+Wrap long sections in `<details><summary><b>Section Name</b></summary>` tags to improve readability and reduce scrolling.
+
+Suggested structure:
+- Brief summary (always visible)
+- Key metrics or highlights (always visible)
+- Detailed analysis (in `<details>` tags)
+- Recommendations (always visible)
+
 ```markdown
 ### Concurrency Safety Issue in \`${TOOL_NAME}\`
 
@@ -496,6 +508,18 @@ Your output MUST include:
    - Detailed issue report if problems found (create issue + optional agent session)
    - Clean tool confirmation if no problems found
 3. **Cache Update Confirmation**: Confirm cache was updated with results
+
+## Completion Requirement
+
+You MUST call at least one safe-output tool before finishing:
+- Use `create_issue` (and optionally `create_agent_session`) when you find actionable concurrency issues.
+- If no GitHub write action is needed, you MUST call `noop` with a brief explanation.
+
+If you emitted any actionable safe outputs, do not emit `noop`.
+
+```json
+{"noop": {"message": "No actionable concurrency issues found in <tool_name>; analysis completed and cache state updated."}}
+```
 
 ## Concurrency Analysis Best Practices
 

@@ -38,8 +38,8 @@ func TestCopilotEngine(t *testing.T) {
 		t.Error("Expected copilot engine to support tools allowlist")
 	}
 
-	if capabilities.MaxTurns {
-		t.Error("Expected copilot engine to not support max-turns yet")
+	if !capabilities.MaxTurns {
+		t.Error("Expected copilot engine to support max-turns")
 	}
 
 	// Test declared output files (session files are copied to logs folder)
@@ -99,6 +99,22 @@ func TestCopilotEngineInstallationSteps(t *testing.T) {
 	// Secret validation is now in the activation job; installation only has the install step = 1 step
 	if len(stepsWithVersion) != 1 {
 		t.Errorf("Expected 1 installation step with version (install), got %d", len(stepsWithVersion))
+	}
+
+	workflowDataWithSDK := &WorkflowData{
+		EngineConfig: &EngineConfig{CopilotSDK: true},
+	}
+	stepsWithSDK := engine.GetInstallationSteps(workflowDataWithSDK)
+	if len(stepsWithSDK) != 2 {
+		t.Fatalf("Expected 2 installation steps with copilot-sdk enabled, got %d", len(stepsWithSDK))
+	}
+	sdkInstallStep := strings.Join(stepsWithSDK[1], "\n")
+	if !strings.Contains(sdkInstallStep, "name: Install GitHub Copilot SDK (Node.js)") {
+		t.Fatalf("Expected SDK install step name, got:\n%s", sdkInstallStep)
+	}
+	expectedSDKInstall := "cd \"${GITHUB_WORKSPACE}\" && npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion)
+	if !strings.Contains(sdkInstallStep, expectedSDKInstall) {
+		t.Fatalf("Expected SDK install command %q, got:\n%s", expectedSDKInstall, sdkInstallStep)
 	}
 }
 
@@ -244,9 +260,216 @@ func TestCopilotEngineExecutionStepsWithCopilotSDK(t *testing.T) {
 		t.Fatalf("Expected main copilot command to avoid --transport http when copilot-sdk is enabled, got:\n%s", stepContent)
 	}
 
+	// SDK URI env var must be set so the driver and SDK client can locate the sidecar.
 	expectedURI := constants.CopilotSDKURIEnvVar + ": http://127.0.0.1:" + strconv.Itoa(constants.DefaultCopilotSDKPort)
 	if !strings.Contains(stepContent, expectedURI) {
 		t.Fatalf("Expected %s in step env, got:\n%s", expectedURI, stepContent)
+	}
+	if !strings.Contains(stepContent, `npm root -g`) || !strings.Contains(stepContent, `export NODE_PATH=`) {
+		t.Fatalf("Expected SDK mode command to configure NODE_PATH from npm global root, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `${GITHUB_WORKSPACE:-$PWD}/node_modules`) {
+		t.Fatalf("Expected SDK mode command to configure NODE_PATH from workspace node_modules, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `${NODE_PATH:+:${NODE_PATH}}`) {
+		t.Fatalf("Expected SDK mode command to preserve existing NODE_PATH entries, got:\n%s", stepContent)
+	}
+
+	// Driver mode: GH_AW_COPILOT_SDK_DRIVER must be set so the harness delegates to the driver.
+	if !strings.Contains(stepContent, constants.CopilotSDKDriverEnvVar+": 1") {
+		t.Fatalf("Expected %s: 1 in step env, got:\n%s", constants.CopilotSDKDriverEnvVar, stepContent)
+	}
+
+	// GH_AW_COPILOT_SDK_SERVER_ARGS must carry the JSON-encoded server arg list.
+	if !strings.Contains(stepContent, constants.CopilotSDKServerArgsEnvVar+":'") &&
+		!strings.Contains(stepContent, constants.CopilotSDKServerArgsEnvVar+": '") {
+		// Try the plain (no-quotes) form too — YAML scalar style varies.
+		if !strings.Contains(stepContent, constants.CopilotSDKServerArgsEnvVar+":") {
+			t.Fatalf("Expected %s to be set in step env, got:\n%s", constants.CopilotSDKServerArgsEnvVar, stepContent)
+		}
+	}
+	// The server args value must include the headless sidecar control flags.
+	if !strings.Contains(stepContent, `"--headless"`) {
+		t.Fatalf("Expected GH_AW_COPILOT_SDK_SERVER_ARGS to include --headless, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `"--port"`) {
+		t.Fatalf("Expected GH_AW_COPILOT_SDK_SERVER_ARGS to include --port, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `"--disable-builtin-mcps"`) {
+		t.Fatalf("Expected GH_AW_COPILOT_SDK_SERVER_ARGS to include --disable-builtin-mcps, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `"--no-ask-user"`) {
+		t.Fatalf("Expected GH_AW_COPILOT_SDK_SERVER_ARGS to include --no-ask-user, got:\n%s", stepContent)
+	}
+
+	// Driver mode: the harness command must reference copilot_sdk_driver.cjs.
+	if !strings.Contains(stepContent, "copilot_sdk_driver.cjs") {
+		t.Fatalf("Expected SDK driver mode command to include copilot_sdk_driver.cjs, got:\n%s", stepContent)
+	}
+
+	// No stdin pipe: configuration is in env vars, not piped JSON.
+	if strings.Contains(stepContent, "| { ") {
+		t.Fatalf("Expected SDK driver mode to not use stdin pipe (| { ... }), got:\n%s", stepContent)
+	}
+
+	// --prompt-file must never appear: the driver reads the prompt via GH_AW_PROMPT.
+	if strings.Contains(stepContent, "--prompt-file") {
+		t.Fatalf("Expected SDK mode to omit --prompt-file CLI arg (prompt is read via GH_AW_PROMPT env var), got:\n%s", stepContent)
+	}
+
+	// The promptFile JSON field must not appear (old stdin-payload format is gone).
+	if strings.Contains(stepContent, `"promptFile"`) {
+		t.Fatalf("Expected SDK driver mode to not embed promptFile JSON (old stdin format), got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKCustomDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK:       true,
+			CopilotSDKDriver: "custom_copilot_sdk_driver.cjs",
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if !strings.Contains(stepContent, "custom_copilot_sdk_driver.cjs") {
+		t.Fatalf("Expected SDK driver mode command to include custom_copilot_sdk_driver.cjs, got:\n%s", stepContent)
+	}
+	if strings.Contains(stepContent, "/actions/copilot_sdk_driver.cjs") {
+		t.Fatalf("Expected built-in SDK driver to be replaced, got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKPythonDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK:       true,
+			CopilotSDKDriver: "my_driver.py",
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if !strings.Contains(stepContent, "python3") {
+		t.Fatalf("Expected Python SDK driver mode to use python3 runtime, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, "my_driver.py") {
+		t.Fatalf("Expected SDK driver mode to include my_driver.py, got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKTypeScriptDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK:       true,
+			CopilotSDKDriver: "my_driver.ts",
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if !strings.Contains(stepContent, "ts-node") {
+		t.Fatalf("Expected TypeScript SDK driver mode to use ts-node runtime, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, "my_driver.ts") {
+		t.Fatalf("Expected SDK driver mode to include my_driver.ts, got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKRubyDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK:       true,
+			CopilotSDKDriver: "my_driver.rb",
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if !strings.Contains(stepContent, "ruby") {
+		t.Fatalf("Expected Ruby SDK driver mode to use ruby runtime, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, "my_driver.rb") {
+		t.Fatalf("Expected SDK driver mode to include my_driver.rb, got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKArbitraryDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK:       true,
+			CopilotSDKDriver: "my-copilot-driver",
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if !strings.Contains(stepContent, "my-copilot-driver") {
+		t.Fatalf("Expected arbitrary SDK driver mode to include driver name, got:\n%s", stepContent)
+	}
+	// Arbitrary driver should NOT be prefixed with SetupActionDestinationShell path
+	if strings.Contains(stepContent, SetupActionDestinationShell+"/my-copilot-driver") {
+		t.Fatalf("Expected arbitrary SDK driver not to be prefixed with setup action path, got:\n%s", stepContent)
+	}
+}
+
+func TestCopilotEngineExecutionStepsWithCopilotSDKPermissionConfig(t *testing.T) {
+	engine := NewCopilotEngine()
+	workflowData := &WorkflowData{
+		Name: "test-workflow",
+		EngineConfig: &EngineConfig{
+			CopilotSDK: true,
+		},
+		Tools: map[string]any{
+			"bash": []any{"git"},
+			"edit": nil,
+		},
+	}
+
+	steps := engine.GetExecutionSteps(workflowData, "/tmp/gh-aw/test.log")
+	if len(steps) != 1 {
+		t.Fatalf("Expected 1 execution step, got %d", len(steps))
+	}
+
+	stepContent := strings.Join([]string(steps[0]), "\n")
+	if strings.Contains(stepContent, `"permissionConfig":{`) {
+		t.Fatalf("Expected SDK driver mode to avoid legacy permissionConfig stdin JSON payload, got:\n%s", stepContent)
+	}
+	if !strings.Contains(stepContent, `"--allow-tool"`) ||
+		!strings.Contains(stepContent, `"shell(git:*)"`) ||
+		!strings.Contains(stepContent, `"write"`) {
+		t.Fatalf("Expected GH_AW_COPILOT_SDK_SERVER_ARGS to include normalized allow-tool entries, got:\n%s", stepContent)
 	}
 }
 
@@ -1785,6 +2008,195 @@ func TestCopilotEngineSkipInstallationWithCommand(t *testing.T) {
 	installContent := strings.Join([]string(steps[0]), "\n")
 	if !strings.Contains(installContent, "Install AWF binary") {
 		t.Errorf("Expected AWF installation step when firewall is enabled with custom command, got:\n%s", installContent)
+	}
+}
+
+func TestCopilotEngineInstallationWithCommandAndCopilotSDK(t *testing.T) {
+	engine := NewCopilotEngine()
+
+	tests := []struct {
+		name          string
+		command       string
+		expectedName  string
+		expectedRun   string
+		withFirewall  bool
+		expectedSteps int
+	}{
+		{
+			name:          "node command uses npm sdk install",
+			command:       "node ./agent.js",
+			expectedName:  "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:   "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "python command uses pip sdk install",
+			command:       "python3 main.py",
+			expectedName:  "name: Install GitHub Copilot SDK (Python)",
+			expectedRun:   "pip install --disable-pip-version-check github-copilot-sdk==" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "go command uses go get sdk install",
+			command:       "go run ./cmd/agent",
+			expectedName:  "name: Install GitHub Copilot SDK (Go)",
+			expectedRun:   "go get github.com/github/copilot-sdk/go@v" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "rust command uses cargo sdk install",
+			command:       "cargo run --bin agent",
+			expectedName:  "name: Install GitHub Copilot SDK (Rust)",
+			expectedRun:   "cargo add github-copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "dotnet command uses nuget sdk install",
+			command:       "dotnet run --project src/Agent",
+			expectedName:  "name: Install GitHub Copilot SDK (.NET)",
+			expectedRun:   "dotnet add package GitHub.Copilot.SDK --version " + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "java command uses maven sdk install",
+			command:       "mvn test",
+			expectedName:  "name: Install GitHub Copilot SDK (Java)",
+			expectedRun:   "mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get -Dartifact=com.github:copilot-sdk-java:" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "runtime manager java command uses java sdk install",
+			command:       "gradle test",
+			expectedName:  "name: Install GitHub Copilot SDK (Java)",
+			expectedRun:   "mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get -Dartifact=com.github:copilot-sdk-java:" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "unsupported runtime falls back to node sdk install",
+			command:       "bun run agent.ts",
+			expectedName:  "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:   "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "env wrapper command is detected",
+			command:       "env FOO=bar python script.py",
+			expectedName:  "name: Install GitHub Copilot SDK (Python)",
+			expectedRun:   "pip install --disable-pip-version-check github-copilot-sdk==" + string(constants.DefaultCopilotSDKVersion),
+			expectedSteps: 1,
+		},
+		{
+			name:          "custom command with firewall keeps awf and sdk installs",
+			command:       "python script.py",
+			expectedName:  "name: Install GitHub Copilot SDK (Python)",
+			expectedRun:   "pip install --disable-pip-version-check github-copilot-sdk==" + string(constants.DefaultCopilotSDKVersion),
+			withFirewall:  true,
+			expectedSteps: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflowData := &WorkflowData{
+				EngineConfig: &EngineConfig{
+					Command:    tt.command,
+					CopilotSDK: true,
+				},
+			}
+			if tt.withFirewall {
+				workflowData.NetworkPermissions = &NetworkPermissions{
+					Firewall: &FirewallConfig{Enabled: true},
+				}
+			}
+
+			steps := engine.GetInstallationSteps(workflowData)
+			if len(steps) != tt.expectedSteps {
+				t.Fatalf("Expected %d installation steps, got %d", tt.expectedSteps, len(steps))
+			}
+
+			sdkStepContent := strings.Join(steps[0], "\n")
+			if !strings.Contains(sdkStepContent, tt.expectedName) {
+				t.Fatalf("Expected SDK install step name %q, got:\n%s", tt.expectedName, sdkStepContent)
+			}
+			if !strings.Contains(sdkStepContent, tt.expectedRun) {
+				t.Fatalf("Expected SDK install command %q, got:\n%s", tt.expectedRun, sdkStepContent)
+			}
+
+			if tt.withFirewall {
+				awfStepContent := strings.Join(steps[1], "\n")
+				if !strings.Contains(awfStepContent, "Install AWF binary") {
+					t.Fatalf("Expected AWF installation step with firewall enabled, got:\n%s", awfStepContent)
+				}
+			}
+		})
+	}
+}
+
+// TestCopilotEngineInstallationWithCopilotSDKDriver tests that using copilot-sdk-driver
+// with various language extensions triggers the correct SDK install step.
+func TestCopilotEngineInstallationWithCopilotSDKDriver(t *testing.T) {
+	engine := NewCopilotEngine()
+
+	tests := []struct {
+		name         string
+		driver       string
+		expectedName string
+		expectedRun  string
+	}{
+		{
+			name:         "js driver uses npm sdk install",
+			driver:       "my_driver.cjs",
+			expectedName: "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:  "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+		},
+		{
+			name:         "python driver uses pip sdk install",
+			driver:       "my_driver.py",
+			expectedName: "name: Install GitHub Copilot SDK (Python)",
+			expectedRun:  "pip install --disable-pip-version-check github-copilot-sdk==" + string(constants.DefaultCopilotSDKVersion),
+		},
+		{
+			name:         "typescript driver uses npm sdk install",
+			driver:       "my_driver.ts",
+			expectedName: "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:  "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+		},
+		{
+			name:         "ruby driver uses npm sdk install fallback",
+			driver:       "my_driver.rb",
+			expectedName: "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:  "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+		},
+		{
+			name:         "arbitrary command driver uses npm sdk install fallback",
+			driver:       "my-copilot-driver",
+			expectedName: "name: Install GitHub Copilot SDK (Node.js)",
+			expectedRun:  "npm install --ignore-scripts --no-save @github/copilot-sdk@" + string(constants.DefaultCopilotSDKVersion),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflowData := &WorkflowData{
+				EngineConfig: &EngineConfig{
+					CopilotSDK:       true,
+					CopilotSDKDriver: tt.driver,
+				},
+			}
+
+			steps := engine.GetInstallationSteps(workflowData)
+			if len(steps) != 2 {
+				t.Fatalf("Expected 2 installation steps (Copilot CLI + SDK), got %d", len(steps))
+			}
+
+			sdkStepContent := strings.Join(steps[1], "\n")
+			if !strings.Contains(sdkStepContent, tt.expectedName) {
+				t.Fatalf("Expected SDK install step name %q, got:\n%s", tt.expectedName, sdkStepContent)
+			}
+			if !strings.Contains(sdkStepContent, tt.expectedRun) {
+				t.Fatalf("Expected SDK install command %q, got:\n%s", tt.expectedRun, sdkStepContent)
+			}
+		})
 	}
 }
 

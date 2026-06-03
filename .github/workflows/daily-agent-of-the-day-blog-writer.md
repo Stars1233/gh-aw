@@ -13,7 +13,9 @@ permissions:
   issues: read
   pull-requests: read
 tracker-id: daily-agent-of-the-day-blog-writer
-engine: copilot
+engine:
+  id: copilot
+  copilot-sdk: true
 strict: true
 timeout-minutes: 45
 network:
@@ -130,6 +132,7 @@ Do not stage the PNG with `git add` and do not include any binary files in the P
 3. Call `seo-optimizer` to generate:
    - `seoDescription` (max 160 chars, SERP-friendly),
    - `linkedPostText` (short, clickable link text for post cards/social snippets).
+   - If `seoDescription` is over 160 characters, rewrite it before continuing.
 
 ### 5) Create blog post file
 
@@ -156,6 +159,7 @@ Body requirements:
 - If image URL exists, embed it with markdown image syntax.
 - Close with a short call to action pointing to `https://github.com/${{ github.repository }}`.
 - Respect metadata limits before opening the PR: `seoDescription` <= 160 chars and `linkedPostText` <= 80 chars.
+- Verify limits with a character count check before creating the PR; if either value is too long, revise and re-check.
 
 ### 6) Open PR
 
@@ -229,3 +233,4 @@ Rules:
 - Must align with the real post content.
 - No hypey clickbait, no unverifiable claims.
 - Maintain GitHub/Microsoft corporate tone.
+- Hard limit: never return `seoDescription` longer than 160 characters.
