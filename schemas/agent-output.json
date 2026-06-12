@@ -77,8 +77,8 @@
           "minLength": 1
         },
         "labels": {
-          "type": "array",
-          "description": "Optional labels to add to the issue",
+          "type": ["array", "string"],
+          "description": "Optional labels to add to the issue. Accepts an array of strings or a comma-separated string (e.g. \"bug, reliability\") that is normalized into an array.",
           "items": {
             "type": "string"
           }
