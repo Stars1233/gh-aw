@@ -34,6 +34,17 @@ func (c *Compiler) buildDetectionEngineExecutionStep(data *WorkflowData) []strin
 	if hasThreatDetectionEngineConfig {
 		engineConfig = data.SafeOutputs.ThreatDetection.EngineConfig
 	}
+	// Preserve the original engine identity before Pi is normalized to Copilot for
+	// detection. Precedence matches runtime engine resolution: explicit
+	// threat-detection.engine.id overrides the main engine config, which overrides
+	// the legacy top-level AI field.
+	originalEngineID := data.AI
+	if data.EngineConfig != nil && data.EngineConfig.ID != "" {
+		originalEngineID = data.EngineConfig.ID
+	}
+	if hasThreatDetectionEngineConfig && data.SafeOutputs.ThreatDetection.EngineConfig.ID != "" {
+		originalEngineID = data.SafeOutputs.ThreatDetection.EngineConfig.ID
+	}
 
 	// Get the engine instance
 	engine, err := c.getAgenticEngine(engineSetting)
@@ -86,6 +97,13 @@ func (c *Compiler) buildDetectionEngineExecutionStep(data *WorkflowData) []strin
 	// and GHE-specific domains in --allow-domains as the main agent AWF invocation.
 	if detectionEngineConfig.APITarget == "" && data.EngineConfig != nil && data.EngineConfig.APITarget != "" {
 		detectionEngineConfig.APITarget = data.EngineConfig.APITarget
+	}
+	if engineSetting == "copilot" && originalEngineID == "pi" {
+		// Pi requires provider/model syntax (for example "copilot/gpt-5.4"), but the
+		// Copilot CLI expects only the model ID. extractPiModelID preserves bare model
+		// names unchanged, so empty or already-normalized values keep their current
+		// fallback behavior while provider-scoped Pi models become Copilot-compatible.
+		detectionEngineConfig.Model = extractPiModelID(detectionEngineConfig.Model)
 	}
 
 	// Create minimal WorkflowData for threat detection.
