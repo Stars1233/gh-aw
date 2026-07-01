@@ -498,6 +498,37 @@ function detectCopilotErrors(output) {
 }
 
 /**
+ * Build child-process environment additions for Copilot SDK mode.
+ * @param {{
+ *   sdkEnv: NodeJS.ProcessEnv,
+ *   copilotSDKMode: boolean,
+ *   copilotConnectionToken: string,
+ *   providerBaseUrl: string,
+ *   providerType: string,
+ *   providerWireApi: string,
+ *   resolvedModel: string,
+ * }} options
+ * @returns {NodeJS.ProcessEnv}
+ */
+function buildCopilotSDKChildEnv({ sdkEnv, copilotSDKMode, copilotConnectionToken, providerBaseUrl, providerType, providerWireApi, resolvedModel }) {
+  if (!copilotSDKMode) {
+    return sdkEnv;
+  }
+  return {
+    ...sdkEnv,
+    COPILOT_CONNECTION_TOKEN: copilotConnectionToken,
+    GH_AW_COPILOT_SDK_PROVIDER_BASE_URL: providerBaseUrl,
+    GH_AW_COPILOT_SDK_PROVIDER_TYPE: providerType,
+    ...(providerWireApi ? { GH_AW_COPILOT_SDK_PROVIDER_WIRE_API: providerWireApi } : {}),
+    COPILOT_MODEL: resolvedModel,
+    // Native Copilot CLI BYOK env vars — consumed by the headless sidecar for all sessions.
+    COPILOT_PROVIDER_BASE_URL: providerBaseUrl,
+    COPILOT_PROVIDER_TYPE: providerType,
+    ...(providerWireApi ? { COPILOT_PROVIDER_WIRE_API: providerWireApi } : {}),
+  };
+}
+
+/**
  * Write Copilot detection outputs to $GITHUB_OUTPUT.
  * @param {{ inferenceAccessError: boolean, mcpPolicyError: boolean, agenticEngineTimeout: boolean, modelNotSupportedError: boolean, http400ResponseError: boolean }} results
  */
@@ -746,16 +777,21 @@ async function main() {
   // (started by the harness) and the SDK client share the same token.
   // In SDK mode also inject the resolved BYOK provider base URL, type, and model so the driver
   // subprocess does not need to re-read the reflect file.
-  const sdkChildEnv = copilotSDKMode
-    ? {
-        ...sdkEnv,
-        COPILOT_CONNECTION_TOKEN: copilotConnectionToken,
-        GH_AW_COPILOT_SDK_PROVIDER_BASE_URL: providerBaseUrl,
-        GH_AW_COPILOT_SDK_PROVIDER_TYPE: providerType,
-        GH_AW_COPILOT_SDK_PROVIDER_WIRE_API: providerWireApi,
-        COPILOT_MODEL: resolvedModel,
-      }
-    : sdkEnv;
+  //
+  // Additionally, forward BYOK config as native Copilot CLI COPILOT_PROVIDER_* env vars so
+  // the headless sidecar propagates the same provider to sub-agent sessions spawned via the
+  // task tool. Sub-agents do not inherit the SDK session-level `provider` config; the headless
+  // server instead reads COPILOT_PROVIDER_* from its own process env to configure each
+  // sub-agent session's inference backend.
+  const sdkChildEnv = buildCopilotSDKChildEnv({
+    sdkEnv,
+    copilotSDKMode,
+    copilotConnectionToken,
+    providerBaseUrl,
+    providerType,
+    providerWireApi,
+    resolvedModel,
+  });
   const childEnv = Object.keys(sdkChildEnv).length > 0 ? { ...process.env, ...sdkChildEnv } : undefined;
 
   // Pre-flight: skip the agent entirely when a noop has already been written by a prior step.
@@ -1109,6 +1145,7 @@ if (typeof module !== "undefined" && module.exports) {
     fetchAWFReflect,
     fetchModelsFromUrl,
     buildCopilotProxyAuthFailureDiagnostic,
+    buildCopilotSDKChildEnv,
     envFlagEnabled,
     generateCopilotConnectionToken,
     buildCopilotSDKServerArgs,
